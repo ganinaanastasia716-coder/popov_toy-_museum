@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Музейная коллекция</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="hero">
+    <div class="eyebrow">MUSEUM COLLECTION</div>
+    <h1>Коллекция<br><span>игрушек</span></h1>
+    <p>Найди экспонат по фото или данным каталога.</p>
+  </header>
+
+  <section class="scan-card" onclick="scan()">
+    <div class="scan-icon">📷</div>
+    <div><strong>Сканировать игрушку</strong><small>Сфотографируй экспонат — найдём похожий</small></div>
+    <div class="arrow">›</div>
+  </section>
+
+  <section class="stats" id="stats">
+    <div><b>—</b><span>экспонатов</span></div>
+    <div><b>—</b><span>городов</span></div>
+    <div><b>—</b><span>стран</span></div>
+  </section>
+
+  <section class="search-panel">
+    <div class="section-title">Поиск в каталоге</div>
+    <div class="search-row"><span>⌕</span><input id="q" placeholder="Название, номер, музей..." oninput="debouncedSearch()"><button onclick="clearSearch()">×</button></div>
+    <div class="chips">
+      <button class="chip active" data-mode="all" onclick="setMode('all',this)">Все</button>
+      <button class="chip" data-mode="inventory" onclick="setMode('inventory',this)">Артикул</button>
+      <button class="chip" data-mode="city" onclick="setMode('city',this)">Город</button>
+      <button class="chip" data-mode="country" onclick="setMode('country',this)">Страна</button>
+      <button class="chip" data-mode="museum" onclick="setMode('museum',this)">Музей</button>
+    </div>
+  </section>
+
+  <section class="locations">
+    <div class="section-title">Каталог по местам</div>
+    <div class="location-grid">
+      <button onclick="browse('country')"><span>🌍</span><b>Страны</b><small>где найдены</small></button>
+      <button onclick="browse('city')"><span>📍</span><b>Города</b><small>коллекции</small></button>
+      <button onclick="browse('museum')"><span>🏛</span><b>Музеи</b><small>экспозиции</small></button>
+    </div>
+  </section>
+
+  <section id="resultsSection" class="results-section hidden">
+    <div class="results-head"><div class="section-title" id="resultsTitle">Результаты</div><span id="resultsCount"></span></div>
+    <div id="results"></div>
+  </section>
+
+  <section id="detail" class="detail hidden"></section>
+  <input id="cameraInput" type="file" accept="image/*" capture="environment">
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand();}
+let mode='all', timer=null;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+
+async function init(){
+ try{const s=await fetch('/api/stats').then(r=>r.json()); $('stats').innerHTML=`<div><b>${s.total}</b><span>экспонатов</span></div><div><b>${s.cities}</b><span>городов</span></div><div><b>${s.countries}</b><span>стран</span></div>`;}catch(e){}
+ runSearch('');
+}
+function setMode(m,el){mode=m;document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));el.classList.add('active');$('q').placeholder=m==='inventory'?'Например INV-001':m==='city'?'Например Москва':m==='country'?'Например Россия':m==='museum'?'Название музея':'Название, номер, музей...';runSearch($('q').value.trim());}
+function debouncedSearch(){clearTimeout(timer);timer=setTimeout(()=>runSearch($('q').value.trim()),220)}
+function clearSearch(){$('q').value='';runSearch('');$('q').focus()}
+async function runSearch(q){
+ let url='/api/search?limit=100';
+ if(mode==='city') url+='&city='+encodeURIComponent(q); else if(mode==='country') url+='&country='+encodeURIComponent(q); else if(mode==='museum') url+='&museum='+encodeURIComponent(q); else if(q) url+='&q='+encodeURIComponent(q);
+ try{const data=await fetch(url).then(r=>r.json());renderResults(data, q?`Результаты поиска`:'Последние экспонаты');}catch(e){$('results').innerHTML='<div class="empty">Ошибка загрузки.</div>';}
+}
+function renderResults(items,title){
+ $('resultsSection').classList.remove('hidden');$('resultsTitle').textContent=title;$('resultsCount').textContent=items.length+' шт.';
+ $('results').innerHTML=items.length?items.map(x=>`<article class="toy" onclick="openToy(${x.id})"><div class="thumb">${x.photo_url?`<img src="${esc(x.photo_url)}">`:'🧸'}</div><div class="toy-info"><h3>${esc(x.title)}</h3><div class="inv">${esc(x.inventory_num||'Без номера')}</div><p>${[x.city,x.country,x.museum].filter(Boolean).map(esc).join(' · ')||'Место не указано'}</p></div><div class="chev">›</div></article>`).join(''):'<div class="empty">Ничего не найдено.</div>';
+}
+async function browse(type){
+ const data=await fetch('/api/locations').then(r=>r.json());
+ const vals=data[type+'s']||[];
+ $('resultsSection').classList.remove('hidden');$('resultsTitle').textContent=type==='country'?'Страны':type==='city'?'Города':'Музеи';$('resultsCount').textContent=vals.length;
+ $('results').innerHTML=vals.length?vals.map(v=>`<button class="browse-item" onclick="filterBy('${type}',${JSON.stringify(v)})"><span>${type==='country'?'🌍':type==='city'?'📍':'🏛'}</span><b>${esc(v)}</b><i>›</i></button>`).join(''):'<div class="empty">Пока нет заполненных мест.</div>';
+}
+function filterBy(type,value){mode=type;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x.dataset.mode===type));$('q').value=value;runSearch(value)}
+async function openToy(id){
+ $('detail').classList.remove('hidden');$('resultsSection').classList.add('hidden');$('detail').innerHTML='<div class="loading">Загрузка…</div>';
+ const x=await fetch('/api/toys/'+id).then(r=>r.json());
+ $('detail').innerHTML=`<button class="back" onclick="closeDetail()">← Вернуться в каталог</button><div class="detail-card">${x.photo_url?`<img class="detail-photo" src="${esc(x.photo_url)}">`:''}<div class="detail-kicker">ЭКСПОНАТ</div><h2>${esc(x.title)}</h2><div class="detail-inv">${esc(x.inventory_num||'Без инвентарного номера')}</div><div class="facts">${fact('🌍','Страна',x.country)}${fact('📍','Город',x.city)}${fact('🏛','Музей',x.museum)}${fact('🏢','Корпус',x.building)}${fact('🚪','Зал',x.hall)}${fact('🪟','Витрина',x.display_case)}${fact('📦','Полка',x.shelf)}</div>${x.description?`<div class="desc"><b>Описание</b><p>${esc(x.description)}</p></div>`:''}</div>`;
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+function fact(icon,label,value){return value?`<div class="fact"><span>${icon}</span><div><small>${label}</small><b>${esc(value)}</b></div></div>`:''}
+function closeDetail(){$('detail').classList.add('hidden');$('resultsSection').classList.remove('hidden');window.scrollTo({top:document.querySelector('.results-section').offsetTop-10,behavior:'smooth'})}
+function scan(){$('cameraInput').click()}
+$('cameraInput').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;$('resultsSection').classList.remove('hidden');$('resultsTitle').textContent='Результат сканирования';$('resultsCount').textContent='';$('results').innerHTML='<div class="loading">🔎 Распознаю игрушку…</div>';const fd=new FormData();fd.append('image',file);try{const d=await fetch('/api/scan',{method:'POST',body:fd}).then(r=>r.json());if(d.error)throw Error(d.error);renderResults(d.matches||[],'Похожие экспонаты');}catch(err){$('results').innerHTML=`<div class="empty">${esc(err.message)}</div>`}e.target.value='' });
+init();
+</script>
+</body>
+</html>
