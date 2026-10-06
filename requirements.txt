@@ -6,4 +6,4 @@ sentence-transformers>=6,<7
 faiss-cpu>=1.8,<2
 torch>=2.2,<3
 torchvision>=0.17,<1
-pyTelegramBotAPI>=4.29,<5
+pyTelegramBotAPI==4.29.1
