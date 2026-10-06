@@ -4,3 +4,4 @@ Pillow>=10,<13
 sentence-transformers>=3,<6
 faiss-cpu>=1.8,<2
 pyTelegramBotAPI>=4.29,<6
+gunicorn
