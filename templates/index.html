@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TOY MUSEUM</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="app-shell museum-home">
+<section class="home-hero">
+  <div class="hero-gallery"></div>
+  <div class="hero-shade"></div>
+  <div class="topbar home-topbar">
+    <a class="brand" href="/"><span class="brand-mark">M</span><span>TOY MUSEUM</span></a>
+    <a class="profile-button" href="/collection" aria-label="Профиль">⌾</a>
+  </div>
+  <div class="hero-copy home-hero-copy">
+    <div class="eyebrow">ЦИФРОВОЙ МУЗЕЙ</div>
+    <h1>Дизайнерские<br>игрушки</h1>
+    <p>Сохраняем историю<br>уникальных коллекций</p>
+  </div>
+  <div class="brand-ribbon"><span>KAWS</span><span>MOLLY</span><span>BE@RBRICK</span><span>BEARBRICK</span><span>LABUBU &amp; MORE</span></div>
+</section>
+
+<section class="content home-content">
+  <form class="searchbar home-search" action="/search">
+    <span class="search-icon">⌕</span><input name="q" placeholder="Поиск по названию, номеру, автору..." autocomplete="off"><button type="submit" aria-label="Поиск">☷</button>
+  </form>
+
+  <div class="section-head home-section-head"><h2>Найти экспонат</h2><a href="/search">Все способы <b>›</b></a></div>
+
+  <div class="method-grid museum-method-grid">
+    <button class="method museum-tile tile-photo" type="button" onclick="openPhotoChooser()">
+      <span class="method-icon">●</span><strong>По фото</strong><small>Сделайте фото<br>или выберите из галереи</small><span class="tile-arrow">›</span>
+    </button>
+    <a class="method museum-tile tile-dark" href="/search?field=inventory"><span class="method-icon">#</span><strong>Инвентарный<br>номер</strong><small>Поиск по номеру</small><span class="tile-arrow">›</span></a>
+    <a class="method museum-tile tile-lilac" href="/search?field=title"><span class="method-icon">Aa</span><strong>Название</strong><small>По названию<br>или ключевым словам</small><span class="tile-arrow">›</span></a>
+    <a class="method museum-tile tile-city" href="/search?field=city"><span class="method-icon">⌖</span><strong>Город</strong><small>Что у нас есть<br>в вашем городе</small><span class="tile-arrow">›</span></a>
+    <a class="method museum-tile tile-museum" href="/search?field=museum"><span class="method-icon">▥</span><strong>Музей</strong><small>Коллекции и залы</small><span class="tile-arrow">›</span></a>
+    <a class="method museum-tile tile-country" href="/search?field=production_country"><span class="method-icon">◎</span><strong>Страна</strong><small>Поиск по стране<br>производства</small><span class="tile-arrow">›</span></a>
+  </div>
+  <div id="home-scan-results" class="home-scan-results" hidden></div>
+
+  <a class="all-exhibits museum-all" href="/search"><span class="star">★</span><div><strong>Все экспонаты</strong><small>Полная коллекция музея</small></div><b>›</b><span class="all-toy-art"></span></a>
+
+  <div class="home-info-grid">
+    <a href="/collection" class="info-card"><span class="info-icon">▱</span><div><strong>Наши коллекции</strong><small>{{ count }} экспонатов<br>Уникальные дизайнерские игрушки со всего мира</small></div><b>›</b></a>
+    <a href="/quest" class="info-card"><span class="info-icon">▥</span><div><strong>О музее</strong><small>TOY MUSEUM<br>Цифровой музей. Реальные коллекции.</small></div><b>›</b></a>
+  </div>
+
+  <div class="museum-quote"><span class="quote-mark">“</span><div><p>Игрушки — это не просто предметы, это часть нашей истории.</p><small>TOY MUSEUM</small></div><b>›</b><span class="quote-toy-art"></span></div>
+</section>
+
+<nav class="bottom-nav museum-bottom-nav">
+  <a class="active" href="/">⌂<span>Главная</span></a>
+  <a href="/search">⌕<span>Поиск</span></a>
+  <a href="/search?favorite=1">♡<span>Избранное</span></a>
+  <a href="/collection">◯<span>Профиль</span></a>
+</nav>
+
+<input id="gallery-input" type="file" accept="image/*" hidden>
+<input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
+<div id="photo-sheet" class="photo-sheet" hidden>
+  <div class="sheet-backdrop" onclick="closePhotoChooser()"></div>
+  <div class="sheet-card">
+    <div class="sheet-handle"></div><h3>Найти экспонат по фото</h3><p>Сделайте новое фото или выберите изображение из галереи.</p>
+    <button type="button" onclick="document.getElementById('camera-input').click()">📷 Сделать фото</button>
+    <button type="button" class="sheet-secondary" onclick="document.getElementById('gallery-input').click()">▧ Выбрать из галереи</button>
+    <button type="button" class="sheet-cancel" onclick="closePhotoChooser()">Отмена</button>
+  </div>
+</div>
+<div id="scan-status" class="scan-toast" hidden></div>
+<script>
+const galleryInput=document.getElementById('gallery-input');
+const cameraInput=document.getElementById('camera-input');
+const sheet=document.getElementById('photo-sheet');
+const status=document.getElementById('scan-status');
+function openPhotoChooser(){sheet.hidden=false;document.body.classList.add('sheet-open')}
+function closePhotoChooser(){sheet.hidden=true;document.body.classList.remove('sheet-open')}
+async function scanFile(file){if(!file)return;closePhotoChooser();status.hidden=false;status.textContent='◌ Анализирую экспонат…';try{const fd=new FormData();fd.append('photo',file);const r=await fetch('/api/search-photo',{method:'POST',body:fd});const d=await r.json();if(!d.ok||!d.matches?.length){status.textContent='Экспонат не найден. Попробуйте фото спереди и при хорошем освещении.';return;}window.location.href='/search?photo=1&matches='+encodeURIComponent(JSON.stringify(d.matches));}catch(e){status.textContent='Сканер временно недоступен. Попробуйте ещё раз.';}}
+galleryInput.addEventListener('change',()=>scanFile(galleryInput.files[0]));cameraInput.addEventListener('change',()=>scanFile(cameraInput.files[0]));
+</script>
+</main>
+</body>
+</html>
