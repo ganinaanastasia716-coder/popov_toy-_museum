@@ -2,64 +2,130 @@
 
 {% block content %}
 
-<div class="page">
+<div class="page scan-page">
+
     <p class="eyebrow">ВИЗУАЛЬНОЕ РАСПОЗНАВАНИЕ</p>
 
     <h1>Сканер экспонатов</h1>
 
     <p class="muted">
-        Сфотографируйте экспонат или загрузите фотографию.
+        Наведите камеру на игрушку или загрузите фотографию.
         Проверяем только коллекцию музея.
     </p>
+
 </div>
+
 
 <section class="scanner">
 
-    <!-- СКАНЕР -->
-    <div class="frame" id="scannerFrame">
+    <!-- =================================================
+         ОБЛАСТЬ КАМЕРЫ
+         ================================================= -->
 
-        <!-- ФОТО -->
+    <div
+        class="scanner-camera"
+        id="scannerCamera"
+    >
+
+        <video
+            id="camera"
+            autoplay
+            playsinline
+            muted
+        ></video>
+
+
+        <!-- ФОТО ПОСЛЕ СНИМКА / ЗАГРУЗКИ -->
+
         <img
             id="preview"
-            src=""
-            alt="Предпросмотр экспоната"
+            alt="Фотография экспоната"
             hidden
         >
 
-        <!-- РАМКА -->
-        <span id="framePlus">＋</span>
 
-        <i id="frameCorners"></i>
+        <!-- СКАНИРУЮЩАЯ РАМКА -->
 
-        <small id="frameText">
-            ПОМЕСТИТЕ ИГРУШКУ В КАДР
-        </small>
+        <div
+            class="scan-overlay"
+            id="scanOverlay"
+        >
 
-        <!-- ЗАГРУЗКА ФОТО -->
+            <div class="scan-corners"></div>
+
+            <div
+                class="scan-line"
+                id="scanLine"
+            ></div>
+
+        </div>
+
+
+        <!-- ТЕКСТ ВНУТРИ КАМЕРЫ -->
+
+        <div
+            class="camera-hint"
+            id="cameraHint"
+        >
+            Наведите камеру на игрушку
+        </div>
+
+
+        <!-- CANVAS ДЛЯ ФОТО -->
+
+        <canvas
+            id="captureCanvas"
+            hidden
+        ></canvas>
+
+    </div>
+
+
+    <!-- =================================================
+         УПРАВЛЕНИЕ
+         ================================================= -->
+
+    <div class="scanner-controls">
+
+        <!-- ЗАГРУЗИТЬ ГОТОВОЕ ФОТО -->
+
         <label
-            class="upload-inside"
+            class="file-button"
             for="photo"
         >
-            Загрузить фото
+            Добавить файл
 
             <input
                 type="file"
                 id="photo"
                 name="photo"
                 accept="image/*"
-                capture="environment"
             >
         </label>
+
+
+        <!-- СДЕЛАТЬ СНИМОК -->
+
+        <button
+            type="button"
+            class="camera-button"
+            id="takePhoto"
+        >
+            Сделать снимок
+        </button>
 
     </div>
 
 
-    <!-- РАСПОЗНАВАНИЕ -->
+    <!-- =================================================
+         РАСПОЗНАТЬ
+         ================================================= -->
+
     <form id="scanform">
 
         <button
-            class="primary"
             type="submit"
+            class="primary recognize-button"
             id="recognizeButton"
             disabled
         >
@@ -69,7 +135,6 @@
     </form>
 
 
-    <!-- СТАТУС -->
     <p
         id="status"
         class="status"
@@ -79,16 +144,22 @@
 </section>
 
 
-<!-- РЕЗУЛЬТАТЫ -->
+<!-- =====================================================
+     РЕЗУЛЬТАТЫ
+     ===================================================== -->
+
 <section
     id="results"
+    class="scan-results"
     hidden
 >
 
     <div class="heading">
+
         <h2 id="result-title">
             Результаты
         </h2>
+
     </div>
 
     <div id="body"></div>
@@ -99,20 +170,38 @@
 <style>
 
 /* =====================================================
-   СКАНЕР
+   ОСНОВНОЙ СКАНЕР
    ===================================================== */
 
-#scannerFrame {
-    position: relative;
-    overflow: hidden;
+.scanner {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
 }
 
 
 /* =====================================================
-   ПРЕВЬЮ ФОТО
+   КАМЕРА
    ===================================================== */
 
-#preview {
+.scanner-camera {
+    position: relative;
+
+    width: 100%;
+
+    aspect-ratio: 4 / 3;
+
+    overflow: hidden;
+
+    border-radius: 24px;
+
+    background: #080808;
+}
+
+
+/* ЖИВАЯ КАМЕРА */
+
+#camera {
     position: absolute;
 
     inset: 0;
@@ -126,80 +215,190 @@
 }
 
 
-/* =====================================================
-   ЭЛЕМЕНТЫ РАМКИ
-   ===================================================== */
+/* ФОТО */
 
-#scannerFrame > span,
-#scannerFrame > i,
-#scannerFrame > small {
-    position: relative;
+#preview {
+    position: absolute;
 
-    z-index: 3;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    z-index: 4;
 }
 
 
 /* =====================================================
-   КНОПКА "ЗАГРУЗИТЬ ФОТО"
+   РАМКА СКАНИРОВАНИЯ
    ===================================================== */
 
-.upload-inside {
+.scan-overlay {
+    position: absolute;
+
+    inset: 0;
+
+    z-index: 3;
+
+    pointer-events: none;
+}
+
+
+/* Углы */
+
+.scan-corners {
+    position: absolute;
+
+    left: 12%;
+    right: 12%;
+
+    top: 12%;
+    bottom: 12%;
+
+    border: 1px solid rgba(255,255,255,.65);
+
+    border-radius: 18px;
+}
+
+
+/* Сканирующая линия */
+
+.scan-line {
+    position: absolute;
+
+    left: 13%;
+    right: 13%;
+
+    top: 15%;
+
+    height: 1px;
+
+    background: rgba(255,255,255,.8);
+
+    animation: scanMove 2.8s ease-in-out infinite;
+}
+
+
+@keyframes scanMove {
+
+    0% {
+        top: 15%;
+        opacity: .25;
+    }
+
+    50% {
+        top: 82%;
+        opacity: .9;
+    }
+
+    100% {
+        top: 15%;
+        opacity: .25;
+    }
+
+}
+
+
+/* =====================================================
+   ТЕКСТ НА КАМЕРЕ
+   ===================================================== */
+
+.camera-hint {
     position: absolute;
 
     left: 50%;
-    bottom: 24px;
+    bottom: 28px;
 
     transform: translateX(-50%);
 
-    z-index: 10;
+    z-index: 5;
+
+    width: max-content;
+    max-width: 90%;
+
+    padding: 8px 14px;
+
+    border-radius: 10px;
+
+    background: rgba(0,0,0,.5);
+
+    color: #fff;
+
+    font-size: 13px;
+
+    text-align: center;
+
+    backdrop-filter: blur(8px);
+}
+
+
+/* =====================================================
+   КНОПКИ ПОД КАМЕРОЙ
+   ===================================================== */
+
+.scanner-controls {
+
+    display: flex;
+
+    justify-content: center;
+
+    align-items: center;
+
+    gap: 12px;
+
+    margin-top: 18px;
+
+}
+
+
+/* Общий стиль */
+
+.file-button,
+.camera-button {
 
     display: inline-flex;
 
     align-items: center;
     justify-content: center;
 
-    min-width: 150px;
+    min-height: 44px;
 
-    padding: 12px 22px;
+    padding: 11px 18px;
 
     border-radius: 12px;
 
-    background: rgba(0, 0, 0, 0.68);
+    border: 1px solid rgba(255,255,255,.16);
 
-    color: #ffffff;
+    background: rgba(255,255,255,.06);
 
-    font-size: 14px;
-    font-weight: 600;
+    color: inherit;
+
+    font: inherit;
 
     cursor: pointer;
 
-    white-space: nowrap;
-
-    backdrop-filter: blur(10px);
-
-    -webkit-backdrop-filter: blur(10px);
-
     transition:
-        background 0.2s ease,
-        transform 0.2s ease;
+        background .2s ease,
+        transform .2s ease;
 }
 
 
-.upload-inside:hover {
-    background: rgba(0, 0, 0, 0.82);
+.file-button:hover,
+.camera-button:hover {
 
-    transform: translateX(-50%) translateY(-1px);
+    background: rgba(255,255,255,.1);
+
+    transform: translateY(-1px);
+
 }
 
 
-.upload-inside:active {
-    transform: translateX(-50%) translateY(1px);
-}
+/* Настоящий input скрыт */
 
+.file-button input {
 
-/* Настоящий input скрываем */
-
-.upload-inside input {
     position: absolute;
 
     width: 1px;
@@ -208,42 +407,30 @@
     opacity: 0;
 
     pointer-events: none;
+
 }
 
 
 /* =====================================================
-   ПОСЛЕ ВЫБОРА ФОТО
+   РАСПОЗНАТЬ
    ===================================================== */
 
-#scannerFrame.has-photo #frameText,
-#scannerFrame.has-photo #framePlus,
-#scannerFrame.has-photo #frameCorners {
-    display: none;
+.recognize-button {
+
+    display: block;
+
+    width: 100%;
+
+    margin-top: 14px;
 }
 
 
-/* =====================================================
-   КНОПКА РАСПОЗНАВАНИЯ
-   ===================================================== */
+.recognize-button:disabled {
 
-#recognizeButton {
-    transition:
-        opacity 0.2s ease,
-        transform 0.2s ease;
-}
-
-
-#recognizeButton:not(:disabled):hover {
-    transform: translateY(-1px);
-}
-
-
-#recognizeButton:disabled {
-    opacity: 0.45;
+    opacity: .4;
 
     cursor: not-allowed;
 
-    transform: none;
 }
 
 
@@ -251,12 +438,14 @@
    СТАТУС
    ===================================================== */
 
-#status {
+.status {
+
     min-height: 24px;
 
-    margin-top: 14px;
+    margin: 14px 0 0;
 
     text-align: center;
+
 }
 
 
@@ -264,25 +453,105 @@
    РЕЗУЛЬТАТЫ
    ===================================================== */
 
-#results {
-    margin-top: 32px;
+.scan-results {
+
+    max-width: 1000px;
+
+    margin: 36px auto 0;
+
 }
 
 
 /* =====================================================
-   МОБИЛЬНАЯ ВЕРСИЯ
+   СОСТОЯНИЕ ПОСЛЕ ФОТО
+   ===================================================== */
+
+.scanner-camera.has-photo .scan-overlay {
+
+    display: none;
+
+}
+
+
+.scanner-camera.has-photo .camera-hint {
+
+    display: none;
+
+}
+
+
+/* =====================================================
+   МОБИЛЬНЫЕ
    ===================================================== */
 
 @media (max-width: 600px) {
 
-    .upload-inside {
-        bottom: 18px;
+    .scanner-camera {
 
-        min-width: 140px;
+        aspect-ratio: 3 / 4;
 
-        padding: 11px 18px;
+        border-radius: 18px;
+
+    }
+
+
+    .scan-corners {
+
+        left: 8%;
+        right: 8%;
+
+        top: 10%;
+        bottom: 10%;
+
+    }
+
+
+    .scan-line {
+
+        left: 9%;
+        right: 9%;
+
+    }
+
+
+    .scanner-controls {
+
+        gap: 8px;
+
+    }
+
+
+    .file-button,
+    .camera-button {
+
+        flex: 1;
+
+        padding-left: 10px;
+        padding-right: 10px;
 
         font-size: 13px;
+
+    }
+
+}
+
+
+/* Очень маленький экран */
+
+@media (max-width: 380px) {
+
+    .scanner-controls {
+
+        flex-direction: column;
+
+    }
+
+
+    .file-button,
+    .camera-button {
+
+        width: 100%;
+
     }
 
 }
@@ -296,17 +565,29 @@
    ЭЛЕМЕНТЫ
    ===================================================== */
 
-const form =
-    document.getElementById("scanform");
-
-const photoInput =
-    document.getElementById("photo");
+const camera =
+    document.getElementById("camera");
 
 const preview =
     document.getElementById("preview");
 
-const scannerFrame =
-    document.getElementById("scannerFrame");
+const canvas =
+    document.getElementById("captureCanvas");
+
+const scannerCamera =
+    document.getElementById("scannerCamera");
+
+const cameraHint =
+    document.getElementById("cameraHint");
+
+const photoInput =
+    document.getElementById("photo");
+
+const takePhotoButton =
+    document.getElementById("takePhoto");
+
+const form =
+    document.getElementById("scanform");
 
 const recognizeButton =
     document.getElementById("recognizeButton");
@@ -317,15 +598,203 @@ const status =
 const results =
     document.getElementById("results");
 
-const body =
-    document.getElementById("body");
-
 const resultTitle =
     document.getElementById("result-title");
 
+const body =
+    document.getElementById("body");
+
 
 /* =====================================================
-   ВЫБОР ФОТО
+   СОСТОЯНИЕ
+   ===================================================== */
+
+let cameraStream = null;
+
+let selectedFile = null;
+
+let previewUrl = null;
+
+
+/* =====================================================
+   ЗАПУСК КАМЕРЫ
+   ===================================================== */
+
+async function startCamera() {
+
+    if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+    ) {
+
+        cameraHint.textContent =
+            "Камера недоступна. Добавьте фотографию.";
+
+        takePhotoButton.disabled =
+            true;
+
+        return;
+
+    }
+
+
+    try {
+
+        cameraStream =
+            await navigator.mediaDevices.getUserMedia({
+
+                video: {
+
+                    facingMode: {
+                        ideal: "environment"
+                    },
+
+                    width: {
+                        ideal: 1920
+                    },
+
+                    height: {
+                        ideal: 1080
+                    }
+
+                },
+
+                audio: false
+
+            });
+
+
+        camera.srcObject =
+            cameraStream;
+
+
+        await camera.play();
+
+
+        cameraHint.textContent =
+            "Наведите камеру на игрушку";
+
+
+    } catch (error) {
+
+        console.error(
+            "CAMERA ERROR:",
+            error
+        );
+
+
+        cameraHint.textContent =
+            "Разрешите доступ к камере или добавьте файл";
+
+
+        takePhotoButton.disabled =
+            true;
+
+    }
+
+}
+
+
+/* =====================================================
+   СДЕЛАТЬ СНИМОК
+   ===================================================== */
+
+takePhotoButton.addEventListener(
+    "click",
+    function () {
+
+        if (
+            !cameraStream ||
+            camera.readyState < 2
+        ) {
+
+            status.textContent =
+                "Камера ещё не готова.";
+
+            return;
+
+        }
+
+
+        const width =
+            camera.videoWidth;
+
+        const height =
+            camera.videoHeight;
+
+
+        if (!width || !height) {
+
+            status.textContent =
+                "Не удалось получить изображение с камеры.";
+
+            return;
+
+        }
+
+
+        canvas.width =
+            width;
+
+        canvas.height =
+            height;
+
+
+        const context =
+            canvas.getContext("2d");
+
+
+        context.drawImage(
+            camera,
+            0,
+            0,
+            width,
+            height
+        );
+
+
+        canvas.toBlob(
+            function (blob) {
+
+                if (!blob) {
+
+                    status.textContent =
+                        "Не удалось сделать снимок.";
+
+                    return;
+
+                }
+
+
+                selectedFile =
+                    new File(
+                        [blob],
+                        "scan.jpg",
+                        {
+                            type: "image/jpeg"
+                        }
+                    );
+
+
+                showPreview(
+                    selectedFile
+                );
+
+
+                status.textContent =
+                    "Фото готово к анализу.";
+
+            },
+            "image/jpeg",
+            0.92
+        );
+
+    }
+);
+
+
+/* =====================================================
+   ДОБАВЛЕНИЕ ФАЙЛА
    ===================================================== */
 
 photoInput.addEventListener(
@@ -333,78 +802,118 @@ photoInput.addEventListener(
     function () {
 
         const file =
-            this.files && this.files[0];
+            this.files &&
+            this.files[0];
+
 
         if (!file) {
             return;
         }
 
 
-        /* Проверяем, что это изображение */
-
-        if (!file.type.startsWith("image/")) {
+        if (
+            !file.type.startsWith("image/")
+        ) {
 
             status.textContent =
-                "Пожалуйста, выберите изображение.";
+                "Можно добавить только изображение.";
 
-            this.value = "";
-
-            recognizeButton.disabled = true;
+            this.value =
+                "";
 
             return;
-        }
-
-
-        /* Освобождаем старый URL */
-
-        if (preview.dataset.objectUrl) {
-
-            URL.revokeObjectURL(
-                preview.dataset.objectUrl
-            );
 
         }
 
 
-        /* Создаём новый preview */
-
-        const objectUrl =
-            URL.createObjectURL(file);
-
-        preview.dataset.objectUrl =
-            objectUrl;
-
-        preview.src =
-            objectUrl;
-
-        preview.hidden =
-            false;
+        selectedFile =
+            file;
 
 
-        /* Меняем состояние сканера */
-
-        scannerFrame.classList.add(
-            "has-photo"
+        showPreview(
+            file
         );
-
-
-        /* Активируем кнопку */
-
-        recognizeButton.disabled =
-            false;
 
 
         status.textContent =
             "Фото готово к анализу.";
 
-
-        /* Скрываем старые результаты */
-
-        results.hidden =
-            true;
-
     }
 );
+
+
+/* =====================================================
+   ПОКАЗАТЬ ФОТО
+   ===================================================== */
+
+function showPreview(file) {
+
+    if (previewUrl) {
+
+        URL.revokeObjectURL(
+            previewUrl
+        );
+
+    }
+
+
+    previewUrl =
+        URL.createObjectURL(
+            file
+        );
+
+
+    preview.src =
+        previewUrl;
+
+
+    preview.hidden =
+        false;
+
+
+    scannerCamera.classList.add(
+        "has-photo"
+    );
+
+
+    recognizeButton.disabled =
+        false;
+
+
+    /* Останавливаем камеру,
+       когда фото уже получено */
+
+    stopCamera();
+
+}
+
+
+/* =====================================================
+   ОСТАНОВИТЬ КАМЕРУ
+   ===================================================== */
+
+function stopCamera() {
+
+    if (!cameraStream) {
+        return;
+    }
+
+
+    cameraStream
+        .getTracks()
+        .forEach(
+            function (track) {
+
+                track.stop();
+
+            }
+        );
+
+
+    cameraStream =
+        null;
+
+}
 
 
 /* =====================================================
@@ -418,21 +927,15 @@ form.addEventListener(
         event.preventDefault();
 
 
-        const file =
-            photoInput.files &&
-            photoInput.files[0];
-
-
-        if (!file) {
+        if (!selectedFile) {
 
             status.textContent =
-                "Сначала загрузите фотографию.";
+                "Сначала сделайте снимок или добавьте файл.";
 
             return;
+
         }
 
-
-        /* Блокируем кнопку */
 
         recognizeButton.disabled =
             true;
@@ -450,14 +953,13 @@ form.addEventListener(
             true;
 
 
-        /* Формируем запрос */
-
         const formData =
             new FormData();
 
+
         formData.append(
             "photo",
-            file
+            selectedFile
         );
 
 
@@ -475,12 +977,13 @@ form.addEventListener(
 
             let data;
 
+
             try {
 
                 data =
                     await response.json();
 
-            } catch (jsonError) {
+            } catch (error) {
 
                 throw new Error(
                     "Сервер вернул некорректный ответ."
@@ -488,8 +991,6 @@ form.addEventListener(
 
             }
 
-
-            /* Ошибка сервера */
 
             if (!response.ok) {
 
@@ -502,10 +1003,6 @@ form.addEventListener(
             }
 
 
-            /* =================================================
-               СТАТУС
-               ================================================= */
-
             status.textContent =
                 data.message ||
                 "Проверка завершена.";
@@ -514,10 +1011,6 @@ form.addEventListener(
             results.hidden =
                 false;
 
-
-            /* =================================================
-               ЗАГОЛОВОК
-               ================================================= */
 
             if (
                 data.mode === "database"
@@ -534,13 +1027,9 @@ form.addEventListener(
             }
 
 
-            /* =================================================
-               НАЙДЕНЫ ЭКСПОНАТЫ
-               ================================================= */
-
             if (
                 Array.isArray(data.matches) &&
-                data.matches.length > 0
+                data.matches.length
             ) {
 
                 body.innerHTML =
@@ -554,35 +1043,6 @@ form.addEventListener(
                                 match.toy || {};
 
 
-                            const toyId =
-                                toy.id;
-
-
-                            let imageHtml =
-                                "✦";
-
-
-                            if (
-                                toy.image_path
-                            ) {
-
-                                imageHtml = `
-
-                                    <img
-                                        src="/photos/${esc(
-                                            toy.image_path
-                                        )}"
-                                        alt="${esc(
-                                            toy.name
-                                        )}"
-                                        loading="lazy"
-                                    >
-
-                                `;
-
-                            }
-
-
                             const score =
                                 Math.round(
                                     Number(
@@ -591,18 +1051,38 @@ form.addEventListener(
                                 );
 
 
+                            const image =
+                                toy.image_path
+
+                                    ? `
+
+                                        <img
+                                            src="/photos/${esc(
+                                                toy.image_path
+                                            )}"
+                                            alt="${esc(
+                                                toy.name
+                                            )}"
+                                            loading="lazy"
+                                        >
+
+                                      `
+
+                                    : "✦";
+
+
                             return `
 
                                 <a
                                     class="toy"
                                     href="/toy/${encodeURIComponent(
-                                        toyId
+                                        toy.id
                                     )}"
                                 >
 
                                     <div class="thumb">
 
-                                        ${imageHtml}
+                                        ${image}
 
                                     </div>
 
@@ -656,14 +1136,7 @@ form.addEventListener(
 
                     "</div>";
 
-            }
-
-
-            /* =================================================
-               НИЧЕГО НЕ НАЙДЕНО
-               ================================================= */
-
-            else {
+            } else {
 
                 body.innerHTML = `
 
@@ -680,8 +1153,6 @@ form.addEventListener(
 
             }
 
-
-            /* Прокручиваем к результатам */
 
             results.scrollIntoView({
                 behavior: "smooth",
@@ -720,7 +1191,7 @@ form.addEventListener(
 
 
 /* =====================================================
-   БЕЗОПАСНЫЙ ВЫВОД ТЕКСТА
+   БЕЗОПАСНЫЙ ТЕКСТ
    ===================================================== */
 
 function esc(value) {
@@ -743,6 +1214,23 @@ function esc(value) {
     );
 
 }
+
+
+/* =====================================================
+   ЗАПУСК
+   ===================================================== */
+
+startCamera();
+
+
+/* =====================================================
+   УБИРАЕМ КАМЕРУ ПРИ УХОДЕ СО СТРАНИЦЫ
+   ===================================================== */
+
+window.addEventListener(
+    "pagehide",
+    stopCamera
+);
 
 </script>
 
