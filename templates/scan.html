@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page">
+    <p class="eyebrow">ВИЗУАЛЬНОЕ РАСПОЗНАВАНИЕ</p>
+
+    <h1>Сканер экспонатов</h1>
+
+    <p class="muted">
+        Проверяем только коллекцию музея.
+        Интернет-поиск доступен хранителю при добавлении экспоната.
+    </p>
+</div>
+
+
+<section class="scanner">
+
+    <!-- РАМКА СКАНЕРА -->
+    <div class="frame" id="scannerFrame">
+
+        <!-- Здесь будет камера/фотография -->
+
+        <video
+            id="camera"
+            autoplay
+            playsinline
+            muted
+            hidden>
+        </video>
+
+        <img
+            id="preview"
+            alt="Выбранное фото"
+            hidden>
+
+        <span>＋</span>
+
+        <i></i>
+
+        <small id="frameText">
+            ПОМЕСТИТЕ ИГРУШКУ В КАДР
+        </small>
+
+
+        <!-- ЗАГРУЗКА ФОТО ВНУТРИ СКАНЕРА -->
+        <label class="upload-inside">
+            Загрузить фото
+
+            <input
+                type="file"
+                name="photo"
+                id="photo"
+                accept="image/*">
+        </label>
+
+    </div>
+
+
+    <!-- ФОРМА РАСПОЗНАВАНИЯ -->
+    <form id="scanform">
+
+        <button
+            class="primary"
+            type="submit"
+            id="recognizeButton"
+            disabled>
+            Распознать экспонат ↗
+        </button>
+
+    </form>
+
+
+    <p id="status" class="status"></p>
+
+</section>
+
+
+<section id="results" hidden>
+
+    <div class="heading">
+        <h2 id="result-title">Результаты</h2>
+    </div>
+
+    <div id="body"></div>
+
+</section>
+
+
+<style>
+
+    /* Фото внутри рамки сканера */
+
+    #scannerFrame {
+        position: relative;
+        overflow: hidden;
+    }
+
+
+    #preview,
+    #camera {
+        position: absolute;
+        inset: 0;
+
+        width: 100%;
+        height: 100%;
+
+        object-fit: cover;
+
+        z-index: 1;
+    }
+
+
+    /* Элементы рамки находятся поверх фотографии */
+
+    #scannerFrame > span,
+    #scannerFrame > i,
+    #scannerFrame > small {
+        position: relative;
+        z-index: 3;
+    }
+
+
+    /* Кнопка загрузки */
+
+    .upload-inside {
+
+        position: absolute;
+
+        left: 50%;
+        bottom: 24px;
+
+        transform: translateX(-50%);
+
+        z-index: 10;
+
+        display: inline-flex;
+
+        align-items: center;
+        justify-content: center;
+
+        padding: 12px 22px;
+
+        border-radius: 12px;
+
+        background: rgba(0, 0, 0, 0.65);
+
+        color: #fff;
+
+        font-size: 14px;
+
+        cursor: pointer;
+
+        white-space: nowrap;
+
+        backdrop-filter: blur(8px);
+    }
+
+
+    .upload-inside:hover {
+        background: rgba(0, 0, 0, 0.8);
+    }
+
+
+    .upload-inside input {
+        display: none;
+    }
+
+
+    /* Когда фотография загружена */
+
+    #scannerFrame.has-photo #frameText {
+        display: none;
+    }
+
+
+    #scannerFrame.has-photo > span {
+        display: none;
+    }
+
+
+    #scannerFrame.has-photo > i {
+        display: none;
+    }
+
+
+    /* Кнопка распознавания */
+
+    #recognizeButton:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+</style>
+
+
+<script>
+
+const form = document.querySelector('#scanform');
+
+const photoInput = document.querySelector('#photo');
+
+const preview = document.querySelector('#preview');
+
+const camera = document.querySelector('#camera');
+
+const scannerFrame = document.querySelector('#scannerFrame');
+
+const recognizeButton =
+    document.querySelector('#recognizeButton');
+
+const status =
+    document.querySelector('#status');
+
+const results =
+    document.querySelector('#results');
+
+const body =
+    document.querySelector('#body');
+
+const resultTitle =
+    document.querySelector('#result-title');
+
+
+/* =====================================================
+   ЗАГРУЗКА ФОТО
+   ===================================================== */
+
+photoInput.addEventListener('change', function () {
+
+    const file = this.files[0];
+
+    if (!file) {
+        return;
+    }
+
+
+    /* Показываем выбранную фотографию */
+
+    preview.src = URL.createObjectURL(file);
+
+    preview.hidden = false;
+
+
+    /* Прячем камеру, если она была запущена */
+
+    camera.hidden = true;
+
+
+    /* Меняем состояние рамки */
+
+    scannerFrame.classList.add('has-photo');
+
+
+    /* Разрешаем распознавание */
+
+    recognizeButton.disabled = false;
+
+
+    status.textContent =
+        'Фото готово к анализу.';
+
+
+    results.hidden = true;
+
+});
+
+
+/* =====================================================
+   РАСПОЗНАВАНИЕ
+   ===================================================== */
+
+form.onsubmit = async function (e) {
+
+    e.preventDefault();
+
+
+    if (!photoInput.files[0]) {
+
+        status.textContent =
+            'Сначала загрузите фотографию.';
+
+        return;
+    }
+
+
+    status.textContent =
+        'Сначала проверяем базу музея…';
+
+
+    results.hidden = true;
+
+
+    const fd = new FormData();
+
+    fd.append(
+        'photo',
+        photoInput.files[0]
+    );
+
+
+    try {
+
+        const response = await fetch(
+            '/api/scan',
+            {
+                method: 'POST',
+                body: fd
+            }
+        );
+
+
+        const data =
+            await response.json();
+
+
+        status.textContent =
+            data.message || data.error;
+
+
+        results.hidden = false;
+
+
+        /* Заголовок результата */
+
+        resultTitle.textContent =
+            data.mode === 'database'
+                ? 'Похожие экспонаты'
+                : data.mode === 'online'
+                    ? 'Онлайн-досье'
+                    : 'Нет подтверждённого совпадения';
+
+
+        /* =================================================
+           НАЙДЕНЫ ЭКСПОНАТЫ В БАЗЕ
+           ================================================= */
+
+        if (data.matches?.length) {
+
+            body.innerHTML =
+
+                '<div class="grid">' +
+
+                data.matches.map(m => `
+
+                    <a
+                        class="toy"
+                        href="/toy/${m.toy.id}">
+
+                        <div class="thumb">
+
+                            ${
+                                m.toy.image_path
+
+                                ?
+
+                                `<img
+                                    src="/photos/${m.toy.image_path}"
+                                    alt="">`
+
+                                :
+
+                                '✦'
+                            }
+
+                        </div>
+
+                        <div class="toyinfo">
+
+                            <small>
+                                ${esc(m.toy.inventory_number)}
+                                · визуальное сходство
+                                ${Math.round(m.score * 100)}%
+                            </small>
+
+                            <h3>
+                                ${esc(m.toy.name)}
+                            </h3>
+
+                            <p>
+                                ${esc(m.toy.brand)}
+                                ·
+                                ${esc(m.toy.height)}
+                            </p>
+
+                        </div>
+
+                    </a>
+
+                `).join('') +
+
+                '</div>';
+
+        }
+
+
+        /* =================================================
+           НИЧЕГО НЕ НАЙДЕНО
+           ================================================= */
+
+        else {
+
+            body.innerHTML = `
+
+                <div class="empty">
+
+                    ${
+                        esc(
+                            data.detail ||
+                            'В коллекции музея совпадение не найдено.'
+                        )
+                    }
+
+                </div>
+
+            `;
+
+        }
+
+
+    } catch (error) {
+
+        console.error(error);
+
+        status.textContent =
+            'Ошибка соединения. Попробуйте ещё раз.';
+
+    }
+
+};
+
+
+/* =====================================================
+   БЕЗОПАСНЫЙ ВЫВОД ТЕКСТА
+   ===================================================== */
+
+function esc(x) {
+
+    return String(x ?? '').replace(
+        /[&<>"']/g,
+        c => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[c])
+    );
+
+}
+
+</script>
+
+{% endblock %}
