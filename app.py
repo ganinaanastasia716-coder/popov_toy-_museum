@@ -1,4 +1,5 @@
 import os, io, json, base64, sqlite3, secrets, mimetypes
+import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 from functools import wraps
@@ -16,6 +17,8 @@ ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD","change-me")
 BOT_TOKEN=os.getenv("BOT_TOKEN",""); WEBAPP_URL=os.getenv("WEBAPP_URL","")
 GEMINI_API_KEY=os.getenv("GEMINI_API_KEY",""); GEMINI_MODEL=os.getenv("GEMINI_MODEL","gemini-2.5-flash")
 FIELDS=[("inventory_number","Инвентарный номер"),("name","Название"),("series","Серия"),("brand","Бренд"),("author","Автор"),("rarity","Редкость"),("height","Размер / высота"),("release_year","Год выпуска"),("material","Материал"),("production_country","Страна производства"),("condition","Состояние"),("market_price","Рыночная цена"),("purchase_price","Цена покупки"),("currency","Валюта"),("country","Страна хранения"),("city","Город"),("museum","Музей"),("building","Корпус"),("hall","Зал"),("rack","Стеллаж"),("display_case","Витрина"),("shelf","Полка"),("slot","Место"),("description","Описание"),("image_path","Путь к фото")]
+def photo_sha256(image_bytes):
+    return hashlib.sha256(image_bytes).hexdigest()
 def conn():
  c=sqlite3.connect(DB); c.row_factory=sqlite3.Row; return c
 def init_db():
@@ -310,43 +313,71 @@ def upload():
                 )
                 continue
 
-            number = next_num(c)
-            folder = PHOTOS / number
-            folder.mkdir(parents=True, exist_ok=True)
+           
+# Подготавливаем колонку для контрольной суммы
+columns = {
+    row["name"]
+    for row in c.execute("PRAGMA table_info(toys)").fetchall()
+}
 
-            name = "main.jpg"
-            (folder / name).write_bytes(jpeg_data)
+if "photo_hash" not in columns:
+    c.execute("ALTER TABLE toys ADD COLUMN photo_hash TEXT")
 
-            title = (
-                Path(f.filename).stem
-                .replace("_", " ")
-                .replace("-", " ")
-            )
+# Считаем хеш подготовленной фотографии
+image_hash = photo_sha256(jpeg_data)
+
+# Проверяем фотографии, которые уже зарегистрированы
+existing = c.execute(
+    "SELECT inventory_number, name FROM toys WHERE photo_hash = ?",
+    (image_hash,)
+).fetchone()
+
+if existing:
+    print(
+        f"Дубликат пропущен: "
+        f"{existing['inventory_number']} — {existing['name']}"
+    )
+    continue
+
+# Дубликата нет — создаём новый экспонат
+number = next_num(c)
+folder = PHOTOS / number
+folder.mkdir(parents=True, exist_ok=True)
+
+name = "main.jpg"
+(folder / name).write_bytes(jpeg_data)
+
+title = (
+    Path(f.filename).stem
+    .replace("_", " ")
+    .replace("-", " ")
+)
 
             try:
                 c.execute(
                     """INSERT INTO toys
-                    (inventory_number, name, country, museum, image_path)
-                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        inventory_number,
+                        name,
+                        country,
+                        museum,
+                        image_path,
+                        photo_hash
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)""",
                     (
                         number,
                         title,
                         "Thailand",
                         "Popov Toy Museum",
-                        f"{number}/{name}"
+                        f"{number}/{name}",
+                        image_hash,
                     )
                 )
                 count += 1
             except Exception:
                 (folder / name).unlink(missing_ok=True)
-                raise
-
-    flash(f"Добавлено экспонатов: {count}. Заполните паспорта.")
-
-    for error in errors[:5]:
-        flash(error)
-
-    return redirect("/admin")
+               raise
 
 @app.post("/admin/toy/<int:toy_id>/save")
 @admin_only
