@@ -128,20 +128,84 @@ def logout():session.clear();return redirect("/")
 def admin():
  with conn() as c: toys=[as_toy(r) for r in c.execute("SELECT * FROM toys ORDER BY id DESC LIMIT 250").fetchall()]
  return render_template("admin.html",toys=toys,fields=FIELDS)
+
 @app.post("/admin/upload")
 @admin_only
 def upload():
- files=request.files.getlist("photos"); count=0
- with conn() as c:
-  for f in files:
-   if not f or not f.filename or "." not in f.filename or f.filename.rsplit(".",1)[1].lower() not in {"jpg","jpeg","png","webp"}:continue
-   raw=f.read()
-   try:Image.open(io.BytesIO(raw)).verify()
-   except Exception:continue
-   number=next_num(c); folder=PHOTOS/number; folder.mkdir(parents=True,exist_ok=True); ext=f.filename.rsplit(".",1)[1].lower(); name="main."+ext
-   (folder/name).write_bytes(raw); title=Path(f.filename).stem.replace("_"," ").replace("-"," ")
-   c.execute("INSERT INTO toys(inventory_number,name,country,museum,image_path) VALUES(?,?,?,?,?)",(number,title,"Thailand","Popov Toy Museum",f"{number}/{name}")); count+=1
- flash(f"Добавлено экспонатов: {count}. Заполните паспорта.");return redirect("/admin")
+    files = request.files.getlist("photos")
+    count = 0
+    errors = []
+
+    with conn() as c:
+        for f in files:
+            if not f or not f.filename:
+                continue
+
+            try:
+                raw = f.read()
+                if not raw:
+                    errors.append(f"{f.filename}: пустой файл")
+                    continue
+
+                # Читаем HEIC/HEIF и другие поддерживаемые форматы.
+                image = Image.open(io.BytesIO(raw))
+                image = ImageOps.exif_transpose(image).convert("RGB")
+
+                # Сохраняем все фотографии в едином формате JPEG.
+                output = io.BytesIO()
+                image.save(
+                    output,
+                    format="JPEG",
+                    quality=92,
+                    optimize=True
+                )
+                jpeg_data = output.getvalue()
+
+            except Exception as e:
+                errors.append(
+                    f"{f.filename}: формат не поддерживается "
+                    f"или файл повреждён ({type(e).__name__})"
+                )
+                continue
+
+            number = next_num(c)
+            folder = PHOTOS / number
+            folder.mkdir(parents=True, exist_ok=True)
+
+            name = "main.jpg"
+            (folder / name).write_bytes(jpeg_data)
+
+            title = (
+                Path(f.filename).stem
+                .replace("_", " ")
+                .replace("-", " ")
+            )
+
+            try:
+                c.execute(
+                    """INSERT INTO toys
+                    (inventory_number, name, country, museum, image_path)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        number,
+                        title,
+                        "Thailand",
+                        "Popov Toy Museum",
+                        f"{number}/{name}"
+                    )
+                )
+                count += 1
+            except Exception:
+                (folder / name).unlink(missing_ok=True)
+                raise
+
+    flash(f"Добавлено экспонатов: {count}. Заполните паспорта.")
+
+    for error in errors[:5]:
+        flash(error)
+
+    return redirect("/admin")
+
 @app.post("/admin/toy/<int:toy_id>/save")
 @admin_only
 def save(toy_id):
