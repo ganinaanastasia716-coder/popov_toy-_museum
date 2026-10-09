@@ -314,48 +314,88 @@ def upload():
                 continue
 
            
-# Подготавливаем колонку для контрольной суммы
-columns = {
-    row["name"]
-    for row in c.execute("PRAGMA table_info(toys)").fetchall()
-}
 
-if "photo_hash" not in columns:
-    c.execute("ALTER TABLE toys ADD COLUMN photo_hash TEXT")
+            # Проверяем, существует ли колонка photo_hash
+            columns = {
+                row["name"]
+                for row in c.execute(
+                    "PRAGMA table_info(toys)"
+                ).fetchall()
+            }
 
-# Считаем хеш подготовленной фотографии
-image_hash = photo_sha256(jpeg_data)
+            if "photo_hash" not in columns:
+                c.execute(
+                    "ALTER TABLE toys ADD COLUMN photo_hash TEXT"
+                )
 
-# Проверяем фотографии, которые уже зарегистрированы
-existing = c.execute(
-    "SELECT inventory_number, name FROM toys WHERE photo_hash = ?",
-    (image_hash,)
-).fetchone()
+            # Вычисляем хеш загруженной фотографии
+            image_hash = photo_sha256(jpeg_data)
 
-if existing:
-    print(
-        f"Дубликат пропущен: "
-        f"{existing['inventory_number']} — {existing['name']}"
-    )
-    continue
+            # Заполняем хеши старых экспонатов, если их ещё нет
+            old_toys = c.execute(
+                """
+                SELECT id, image_path
+                FROM toys
+                WHERE photo_hash IS NULL OR photo_hash = ''
+                """
+            ).fetchall()
 
-# Дубликата нет — создаём новый экспонат
-number = next_num(c)
-folder = PHOTOS / number
-folder.mkdir(parents=True, exist_ok=True)
+            for old_toy in old_toys:
+                image_path = old_toy["image_path"]
 
-name = "main.jpg"
-(folder / name).write_bytes(jpeg_data)
+                if not image_path:
+                    continue
 
-title = (
-    Path(f.filename).stem
-    .replace("_", " ")
-    .replace("-", " ")
-)
+                old_path = PHOTOS / image_path
+
+                if old_path.is_file():
+                    old_hash = photo_sha256(old_path.read_bytes())
+                    c.execute(
+                        """
+                        UPDATE toys
+                        SET photo_hash = ?
+                        WHERE id = ?
+                        """,
+                        (old_hash, old_toy["id"])
+                    )
+
+            # Ищем такую же фотографию в базе
+            existing = c.execute(
+                """
+                SELECT inventory_number, name
+                FROM toys
+                WHERE photo_hash = ?
+                LIMIT 1
+                """,
+                (image_hash,)
+            ).fetchone()
+
+            if existing:
+                errors.append(
+                    f"Фото уже есть в каталоге: "
+                    f"{existing['inventory_number']} — "
+                    f"{existing['name']}"
+                )
+                continue
+
+            # Дубликат не найден — создаём новый экспонат
+            number = next_num(c)
+            folder = PHOTOS / number
+            folder.mkdir(parents=True, exist_ok=True)
+
+            name = "main.jpg"
+            (folder / name).write_bytes(jpeg_data)
+
+            title = (
+                Path(f.filename).stem
+                .replace("_", " ")
+                .replace("-", " ")
+            )
 
             try:
                 c.execute(
-                    """INSERT INTO toys
+                    """
+                    INSERT INTO toys
                     (
                         inventory_number,
                         name,
@@ -364,20 +404,22 @@ title = (
                         image_path,
                         photo_hash
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
                     (
                         number,
                         title,
                         "Thailand",
                         "Popov Toy Museum",
                         f"{number}/{name}",
-                        image_hash,
+                        image_hash
                     )
                 )
                 count += 1
+
             except Exception:
                 (folder / name).unlink(missing_ok=True)
-               raise
+                raise         
 
 @app.post("/admin/toy/<int:toy_id>/save")
 @admin_only
