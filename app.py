@@ -54,23 +54,165 @@ def scan_local(raw):
    f=features(p.read_bytes()); score=sum(a*b for a,b in zip(q,f)); out.append({"toy":as_toy(t),"score":round(score,4)})
   except Exception: pass
  return sorted(out,key=lambda x:x["score"],reverse=True)[:6]
-def online_dossier(raw,filename):
- if not GEMINI_API_KEY: raise RuntimeError("Онлайн-поиск не настроен: добавьте GEMINI_API_KEY.")
- prompt="""Identify this designer collectible toy. Use Google Search to verify public information. Return JSON fields name, series, brand, author, rarity, height, release_year, material, production_country, market_price, currency, description, confidence, search_summary. Do not invent facts; use empty values if unknown. Explain uncertainty. This is a proposed dossier, not an official catalog record."""
- mime=mimetypes.guess_type(filename)[0] or "image/jpeg"
- url=f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
- body={"contents":[{"parts":[{"text":prompt},{"inline_data":{"mime_type":mime,"data":base64.b64encode(raw).decode()}}]}],"tools":[{"google_search":{}}],"generationConfig":{"responseMimeType":"application/json"}}
- r=requests.post(url,json=body,timeout=75); r.raise_for_status(); payload=r.json()
- text="".join(p.get("text","") for p in payload.get("candidates",[{}])[0].get("content",{}).get("parts",[]))
- try:data=json.loads(text)
- except Exception:
-  a,b=text.find("{"),text.rfind("}"); data=json.loads(text[a:b+1])
- sources=[]
- for cand in payload.get("candidates",[]):
-  for chunk in cand.get("groundingMetadata",{}).get("groundingChunks",[]):
-   w=chunk.get("web",{})
-   if w.get("uri"): sources.append({"title":w.get("title",w["uri"]),"url":w["uri"]})
- data["sources"]=sources; return data
+
+def online_dossier(raw, filename):
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "Не настроен GEMINI_API_KEY. Добавьте ключ Gemini "
+            "в переменные окружения Render."
+        )
+
+    prompt = """
+You are an expert researcher identifying designer collectible toys
+for a museum catalog.
+
+Carefully examine the uploaded photo. Look for character, shape,
+colors, logos, labels, packaging, and distinctive visual details.
+
+Use Google Search to verify the likely identification. Prefer official
+manufacturer, artist, and brand websites, reputable retailers,
+auction records, and established collector databases.
+
+Return ONE valid JSON object only, without Markdown or explanations
+outside the JSON. Include these fields:
+name, series, brand, author, rarity, height, release_year, material,
+production_country, market_price, currency, description, confidence,
+search_summary.
+
+Use strings for all fields except confidence, which must be a number
+from 0 to 1. If a fact cannot be verified, return an empty string.
+Never invent dimensions, prices, release years, authors, or countries.
+
+In description, describe the visible toy and distinguish visual
+observations from verified product information.
+In search_summary, briefly explain what was verified and what remains
+uncertain. Do not claim certainty without evidence.
+"""
+
+    mime = mimetypes.guess_type(filename)[0] or "image/jpeg"
+
+    url = (
+        "https://generativelanguage.googleapis.com/"
+        f"v1beta/models/{GEMINI_MODEL}:generateContent"
+    )
+
+    body = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": mime,
+                            "data": base64.b64encode(raw).decode("utf-8"),
+                        },
+                    },
+                ],
+            },
+        ],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.2},
+    }
+
+    response = requests.post(
+        url,
+        params={"key": GEMINI_API_KEY},
+        json=body,
+        timeout=90,
+    )
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if not response.ok:
+        error_info = payload.get("error", {})
+        message = error_info.get("message") or (
+            f"Google Gemini вернул HTTP {response.status_code}."
+        )
+        raise RuntimeError(
+            f"Ошибка Gemini API (HTTP {response.status_code}): {message}"
+        )
+
+    candidates = payload.get("candidates") or []
+
+    if not candidates:
+        feedback = payload.get("promptFeedback") or {}
+        reason = feedback.get("blockReason")
+
+        if reason:
+            raise RuntimeError(
+                f"Gemini не обработал фотографию: {reason}."
+            )
+
+        raise RuntimeError(
+            "Gemini вернул пустой ответ. Попробуйте другое фото."
+        )
+
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    answer = "".join(
+        part.get("text", "")
+        for part in parts
+        if isinstance(part, dict)
+    ).strip()
+
+    if not answer:
+        raise RuntimeError(
+            "Gemini не вернул текст с результатом поиска."
+        )
+
+    # Убираем Markdown-обрамление, если модель его добавила.
+    if answer.startswith("```"):
+        answer = answer.split("\n", 1)[-1].strip()
+        if answer.endswith("```"):
+            answer = answer[:-3].strip()
+
+    try:
+        data = json.loads(answer)
+    except json.JSONDecodeError:
+        # Иногда модель добавляет текст вокруг JSON.
+        start = answer.find("{")
+        end = answer.rfind("}")
+
+        if start == -1 or end <= start:
+            raise RuntimeError(
+                "Gemini вернул результат в неподходящем формате. "
+                "Попробуйте ещё раз."
+            )
+
+        try:
+            data = json.loads(answer[start:end + 1])
+        except json.JSONDecodeError:
+            raise RuntimeError(
+                "Не удалось прочитать ответ Gemini. Попробуйте ещё раз."
+            )
+
+    if not isinstance(data, dict):
+        raise RuntimeError("Gemini вернул неожиданный формат данных.")
+
+    # Сохраняем ссылки, найденные Google Search, если они есть.
+    sources = []
+
+    for candidate in candidates:
+        metadata = candidate.get("groundingMetadata") or {}
+
+        for chunk in metadata.get("groundingChunks", []):
+            web_source = chunk.get("web") or {}
+            source_url = web_source.get("uri")
+
+            if source_url:
+                source = {
+                    "title": web_source.get("title") or source_url,
+                    "url": source_url,
+                }
+
+                if source not in sources:
+                    sources.append(source)
+
+    data["sources"] = sources
+
+    return data
 @app.get("/")
 def home():
  q=request.args.get("q","").strip(); toys=[]
