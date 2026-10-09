@@ -1,106 +1,792 @@
+
 <!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <title>Панель хранителя — TOY MUSEUM</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='style.css') }}"
+  >
+
+  <title>Панель хранителя — Popov Toy Museum</title>
+
   <style>
-    .admin-shell{max-width:1180px;margin:0 auto;padding:24px}
-    .admin-top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:28px}
-    .admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
-    .admin-card{padding:16px;border:1px solid rgba(255,255,255,.13);border-radius:18px;min-width:0}
-    .admin-card img{width:100%;height:220px;object-fit:contain;border-radius:12px;background:rgba(255,255,255,.04);margin-bottom:12px}
-    .admin-card label{display:block;margin:12px 0;font-size:.9rem}
-    .admin-card input,.admin-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px}
-    .admin-card textarea{min-height:85px;resize:vertical}
-    .admin-card details{margin:14px 0}
-    .details-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
-    .admin-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
-    .admin-actions button{cursor:pointer}
-    .admin-btn.danger{background:#8e2b38;color:white;border:1px solid #b54a57}
-    .admin-card-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .pill{font-size:.75rem;opacity:.8}
-    .section-head{display:flex;justify-content:space-between;align-items:center;margin:28px 0 16px}
-    .upload{margin:20px 0;padding:18px;border:1px solid rgba(255,255,255,.13);border-radius:18px}
-    .upload-drop{display:grid;gap:10px;margin-bottom:14px}
-    .flash-messages{padding:0;list-style:none}
-    .flash-messages li{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.08);margin:8px 0}
-    @media(max-width:520px){.admin-shell{padding:14px}.details-grid{grid-template-columns:1fr}.admin-card img{height:180px}}
+    .admin-shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .admin-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .admin-grid {
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fit,
+        minmax(min(100%, 300px), 1fr)
+      );
+      gap: 18px;
+    }
+
+    .admin-card {
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 18px;
+      min-width: 0;
+    }
+
+    .admin-card img {
+      display: block;
+      width: 100%;
+      height: 220px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      margin-bottom: 12px;
+    }
+
+    .admin-card label {
+      display: block;
+      margin: 12px 0;
+      font-size: 0.9rem;
+    }
+
+    .admin-card input,
+    .admin-card textarea {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 6px;
+    }
+
+    .admin-card textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 12px;
+    }
+
+    .admin-card details {
+      margin: 14px 0;
+    }
+
+    .admin-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .admin-actions button {
+      cursor: pointer;
+    }
+
+    .admin-btn.danger {
+      background: #8e2b38;
+      color: white;
+      border: 1px solid #b54a57;
+    }
+
+    .admin-card-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .pill {
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 28px 0 16px;
+    }
+
+    .upload {
+      margin: 20px 0;
+      padding: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 18px;
+    }
+
+    .upload-drop {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    /* Поле выбора файла не должно перекрывать кнопку отправки. */
+    .admin-shell .upload input[type="file"] {
+      position: static;
+      inset: auto;
+      width: 100%;
+      opacity: 1;
+      cursor: pointer;
+    }
+
+    .flash-messages {
+      padding: 0;
+      list-style: none;
+    }
+
+    .flash-messages li {
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      margin: 8px 0;
+      overflow-wrap: anywhere;
+    }
+
+    .research-panel {
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .research-status {
+      margin: 10px 0;
+      white-space: pre-wrap;
+    }
+
+    .research-summary {
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .research-sources {
+      padding-left: 20px;
+    }
+
+    .research-sources li {
+      margin: 8px 0;
+    }
+
+    .research-sources a {
+      overflow-wrap: anywhere;
+    }
+
+    .research-note {
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
+
+    .admin-btn:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 520px) {
+      .admin-shell {
+        padding: 14px;
+      }
+
+      .details-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .admin-card img {
+        height: 180px;
+      }
+
+      .admin-actions {
+        flex-direction: column;
+      }
+
+      .admin-actions button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
+
 <body>
 <main class="admin-shell">
+
   <header class="admin-top">
-    <a class="brand" href="/">TOY MUSEUM</a>
+    <a class="brand" href="/">POPov TOY MUSEUM</a>
     <a class="admin-logout" href="/admin/logout">Выйти</a>
   </header>
+
   <div class="eyebrow">ПАНЕЛЬ ХРАНИТЕЛЯ</div>
+
   <h1 class="page-title">Управление экспонатами</h1>
-  <p class="page-subtitle">Загружайте фотографии, редактируйте карточки и удаляйте ненужные записи.</p>
+
+  <p class="page-subtitle">
+    Загружай фотографии, исследуй игрушки, проверяй информацию
+    и сохраняй собственные музейные карточки.
+  </p>
 
   {% with messages = get_flashed_messages() %}
-    {% if messages %}<ul class="flash-messages">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
+    {% if messages %}
+      <ul class="flash-messages" role="status">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
   {% endwith %}
 
-  <form class="upload" action="/admin/upload" method="post" enctype="multipart/form-data">
-    <div class="upload-drop">
-      <strong>＋ Загрузить фотографии</strong>
-      <span>Можно выбрать одну или сразу несколько</span>
-      <input type="file" name="photos" accept="image/*" multiple required>
-    </div>
-    <button class="admin-btn" type="submit">Добавить в базу</button>
-  </form>
+  <!-- Загрузка новых фотографий -->
+  <section aria-labelledby="upload-heading">
+    <h2 id="upload-heading">Добавить экспонаты</h2>
 
-  <div class="section-head"><h2>Экспонаты в базе</h2><span class="count">{{ toys|length }}</span></div>
-  <div class="admin-grid">
-  {% for toy in toys %}
-    <form class="admin-card" action="/admin/toy/{{ toy.id }}/save" method="post">
-      {% if toy.image_path %}
-        <img src="{{ url_for('photo', filename=toy.image_path) }}" onerror="this.style.display='none'" alt="Фото экспоната">
-      {% else %}<div class="empty">Нет фотографии</div>{% endif %}
-      <div class="admin-card-title"><div><span class="pill">{{ toy.inventory_number or 'INV —' }}</span><h3>{{ toy.name or 'Новый экспонат' }}</h3></div></div>
+    <form
+      class="upload"
+      action="/admin/upload"
+      method="post"
+      enctype="multipart/form-data"
+    >
+      <div class="upload-drop">
+        <strong>＋ Загрузить фотографии</strong>
 
-      <label>Инвентарный номер<input name="inventory_number" value="{{ toy.inventory_number or '' }}"></label>
-      <label>Название<input name="name" value="{{ toy.name or '' }}"></label>
-      <label>Бренд<input name="brand" value="{{ toy.brand or '' }}"></label>
-      <label>Серия<input name="series" value="{{ toy.series or '' }}"></label>
-      <label>Автор<input name="author" value="{{ toy.author or '' }}"></label>
-      <label>Размер / высота<input name="height" value="{{ toy.height or '' }}"></label>
+        <span>
+          Выбери одну фотографию или сразу несколько.
+          Поддерживаемый формат зависит от установленного декодера.
+        </span>
 
-      <details><summary>Дополнительные характеристики</summary><div class="details-grid">
-        <label>Редкость<input name="rarity" value="{{ toy.rarity or '' }}"></label>
-        <label>Год выпуска<input name="release_year" type="number" value="{{ toy.release_year or '' }}"></label>
-        <label>Материал<input name="material" value="{{ toy.material or '' }}"></label>
-        <label>Страна производства<input name="production_country" value="{{ toy.production_country or '' }}"></label>
-        <label>Состояние<input name="condition" value="{{ toy.condition or '' }}"></label>
-        <label>Рыночная цена<input name="market_price" type="number" step="0.01" value="{{ toy.market_price if toy.market_price is not none else '' }}"></label>
-        <label>Цена покупки<input name="purchase_price" type="number" step="0.01" value="{{ toy.purchase_price if toy.purchase_price is not none else '' }}"></label>
-        <label>Валюта<input name="currency" value="{{ toy.currency or 'USD' }}"></label>
-      </div></details>
-
-      <details><summary>Местоположение</summary><div class="details-grid">
-        <label>Страна хранения<input name="country" value="{{ toy.country or '' }}"></label>
-        <label>Город<input name="city" value="{{ toy.city or '' }}"></label>
-        <label>Музей<input name="museum" value="{{ toy.museum or '' }}"></label>
-        <label>Корпус<input name="building" value="{{ toy.building or '' }}"></label>
-        <label>Зал<input name="hall" value="{{ toy.hall or '' }}"></label>
-        <label>Стеллаж<input name="rack" value="{{ toy.rack or '' }}"></label>
-        <label>Витрина<input name="display_case" value="{{ toy.display_case or '' }}"></label>
-        <label>Полка<input name="shelf" value="{{ toy.shelf or '' }}"></label>
-        <label>Место / ячейка<input name="slot" value="{{ toy.slot or '' }}"></label>
-      </div></details>
-      <label>Описание<textarea name="description">{{ toy.description or '' }}</textarea></label>
-
-      <div class="admin-actions">
-        <button class="admin-btn" type="submit">Сохранить изменения</button>
-        <button class="admin-btn danger" type="submit" formaction="/admin/toy/{{ toy.id }}/delete" formmethod="post" formnovalidate onclick="return confirm('Удалить этот экспонат и его фотографию? Это действие нельзя отменить.');">Удалить игрушку</button>
+        <input
+          type="file"
+          name="photos"
+          accept="image/*"
+          multiple
+          required
+        >
       </div>
+
+      <button class="admin-btn" type="submit">
+        Добавить в базу
+      </button>
     </form>
-  {% else %}
-    <div class="empty">База пока пустая. Загрузите первую игрушку выше.</div>
-  {% endfor %}
+  </section>
+
+  <!-- Список экспонатов -->
+  <div class="section-head">
+    <h2>Экспонаты в базе</h2>
+    <span class="count">{{ toys|length }}</span>
+  </div>
+
+  <div class="admin-grid">
+
+    {% for toy in toys %}
+
+      <form
+        class="admin-card"
+        action="/admin/toy/{{ toy.id }}/save"
+        method="post"
+        data-toy-form
+      >
+
+        <div class="admin-card-title">
+          <div>
+            <span class="pill">
+              {{ toy.inventory_number or 'INV —' }}
+            </span>
+
+            <h3>{{ toy.name or 'Новый экспонат' }}</h3>
+          </div>
+        </div>
+
+        {% if toy.image_path %}
+          <img
+            src="{{ url_for('photo', filename=toy.image_path) }}"
+            alt="Фотография экспоната {{ toy.name or toy.inventory_number }}"
+            loading="lazy"
+            onerror="this.style.display='none'"
+          >
+        {% else %}
+          <div class="empty">Нет фотографии</div>
+        {% endif %}
+
+        <label>
+          Инвентарный номер
+          <input
+            name="inventory_number"
+            value="{{ toy.inventory_number or '' }}"
+          >
+        </label>
+
+        <label>
+          Название игрушки
+          <input
+            name="name"
+            value="{{ toy.name or '' }}"
+          >
+        </label>
+
+        <label>
+          Бренд / производитель
+          <input
+            name="brand"
+            value="{{ toy.brand or '' }}"
+          >
+        </label>
+
+        <label>
+          Серия / коллекция
+          <input
+            name="series"
+            value="{{ toy.series or '' }}"
+          >
+        </label>
+
+        <label>
+          Автор / дизайнер
+          <input
+            name="author"
+            value="{{ toy.author or '' }}"
+          >
+        </label>
+
+        <label>
+          Размер / высота
+          <input
+            name="height"
+            value="{{ toy.height or '' }}"
+          >
+        </label>
+
+        <details>
+          <summary>Дополнительные характеристики</summary>
+
+          <div class="details-grid">
+
+            <label>
+              Редкость
+              <input
+                name="rarity"
+                value="{{ toy.rarity or '' }}"
+              >
+            </label>
+
+            <label>
+              Год выпуска
+              <input
+                name="release_year"
+                type="number"
+                min="1800"
+                max="2200"
+                step="1"
+                value="{{ toy.release_year or '' }}"
+              >
+            </label>
+
+            <label>
+              Материал
+              <input
+                name="material"
+                value="{{ toy.material or '' }}"
+              >
+            </label>
+
+            <label>
+              Страна производства
+              <input
+                name="production_country"
+                value="{{ toy.production_country or '' }}"
+              >
+            </label>
+
+            <label>
+              Состояние
+              <input
+                name="condition"
+                value="{{ toy.condition or '' }}"
+              >
+            </label>
+
+            <label>
+              Рыночная цена
+              <input
+                name="market_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value="{{ toy.market_price if toy.market_price is not none else '' }}"
+              >
+            </label>
+
+            <label>
+              Цена покупки
+              <input
+                name="purchase_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value="{{ toy.purchase_price if toy.purchase_price is not none else '' }}"
+              >
+            </label>
+
+            <label>
+              Валюта
+              <input
+                name="currency"
+                value="{{ toy.currency or 'USD' }}"
+              >
+            </label>
+
+          </div>
+        </details>
+
+        <details>
+          <summary>Местоположение в музее</summary>
+
+          <div class="details-grid">
+
+            <label>
+              Страна хранения
+              <input name="country" value="{{ toy.country or '' }}">
+            </label>
+
+            <label>
+              Город
+              <input name="city" value="{{ toy.city or '' }}">
+            </label>
+
+            <label>
+              Музей
+              <input name="museum" value="{{ toy.museum or '' }}">
+            </label>
+
+            <label>
+              Корпус
+              <input name="building" value="{{ toy.building or '' }}">
+            </label>
+
+            <label>
+              Зал
+              <input name="hall" value="{{ toy.hall or '' }}">
+            </label>
+
+            <label>
+              Стеллаж
+              <input name="rack" value="{{ toy.rack or '' }}">
+            </label>
+
+            <label>
+              Витрина
+              <input name="display_case" value="{{ toy.display_case or '' }}">
+            </label>
+
+            <label>
+              Полка
+              <input name="shelf" value="{{ toy.shelf or '' }}">
+            </label>
+
+            <label>
+              Место / ячейка
+              <input name="slot" value="{{ toy.slot or '' }}">
+            </label>
+
+          </div>
+        </details>
+
+        <label>
+          Описание и история экспоната
+          <textarea name="description">{{ toy.description or '' }}</textarea>
+        </label>
+
+        <!-- Поиск информации через существующий серверный маршрут -->
+        <section class="research-panel" aria-label="Поиск информации">
+
+          <h4>Исследование игрушки</h4>
+
+          <p class="research-note">
+            Поиск использует фотографию экспоната и Google Search.
+            Найденные сведения нужно проверить перед сохранением.
+          </p>
+
+          <button
+            class="admin-btn"
+            type="button"
+            data-research-button
+            data-research-url="{{ url_for('research', toy_id=toy.id) }}"
+          >
+            Найти информацию в Google
+          </button>
+
+          <p
+            class="research-status"
+            data-research-status
+            role="status"
+            aria-live="polite"
+          ></p>
+
+          <div data-research-results hidden>
+
+            <h5>Краткий результат поиска</h5>
+
+            <p
+              class="research-summary"
+              data-research-summary
+            ></p>
+
+            <h5>Источники</h5>
+
+            <ul
+              class="research-sources"
+              data-research-sources
+            ></ul>
+
+            <p class="research-note">
+              Найденные значения подставляются только в пустые поля.
+              Проверь их, отредактируй при необходимости и нажми
+              «Сохранить изменения».
+            </p>
+
+          </div>
+        </section>
+
+        <div class="admin-actions">
+
+          <button class="admin-btn" type="submit">
+            Сохранить изменения
+          </button>
+
+          <button
+            class="admin-btn danger"
+            type="submit"
+            formaction="/admin/toy/{{ toy.id }}/delete"
+            formmethod="post"
+            formnovalidate
+            onclick="return confirm('Удалить этот экспонат и его фотографию? Это действие нельзя отменить.');"
+          >
+            Удалить игрушку
+          </button>
+
+        </div>
+
+      </form>
+
+    {% else %}
+
+      <div class="empty">
+        База пока пустая. Загрузите первую игрушку выше.
+      </div>
+
+    {% endfor %}
+
   </div>
 </main>
+
+<script>
+(() => {
+  "use strict";
+
+  const dossierFields = [
+    "name",
+    "series",
+    "brand",
+    "author",
+    "rarity",
+    "height",
+    "release_year",
+    "material",
+    "production_country",
+    "market_price",
+    "currency",
+    "description"
+  ];
+
+  function setText(element, value) {
+    element.textContent = value == null ? "" : String(value);
+  }
+
+  function addSources(list, sources) {
+    list.replaceChildren();
+
+    if (!Array.isArray(sources) || sources.length === 0) {
+      const item = document.createElement("li");
+      item.textContent =
+        "Ссылки на источники не вернулись. Проверь сведения отдельно.";
+      list.appendChild(item);
+      return;
+    }
+
+    for (const source of sources) {
+      if (!source || typeof source.url !== "string") {
+        continue;
+      }
+
+      let parsedUrl;
+
+      try {
+        parsedUrl = new URL(source.url);
+      } catch {
+        continue;
+      }
+
+      if (
+        parsedUrl.protocol !== "https:" &&
+        parsedUrl.protocol !== "http:"
+      ) {
+        continue;
+      }
+
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+
+      link.href = parsedUrl.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = source.title || parsedUrl.hostname;
+
+      item.appendChild(link);
+      list.appendChild(item);
+    }
+
+    if (!list.children.length) {
+      const item = document.createElement("li");
+      item.textContent = "Нет доступных ссылок на источники.";
+      list.appendChild(item);
+    }
+  }
+
+  function fillEmptyFields(form, data) {
+    let filled = 0;
+
+    for (const key of dossierFields) {
+      const field = form.elements.namedItem(key);
+
+      if (!field || !("value" in field)) {
+        continue;
+      }
+
+      if (field.value.trim() !== "") {
+        continue;
+      }
+
+      const value = data[key];
+
+      if (
+        value === undefined ||
+        value === null ||
+        String(value).trim() === ""
+      ) {
+        continue;
+      }
+
+      field.value = String(value);
+      filled += 1;
+    }
+
+    return filled;
+  }
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-research-button]");
+
+    if (!button) {
+      return;
+    }
+
+    const form = button.closest("[data-toy-form]");
+
+    if (!form) {
+      return;
+    }
+
+    const status = form.querySelector("[data-research-status]");
+    const results = form.querySelector("[data-research-results]");
+    const summary = form.querySelector("[data-research-summary]");
+    const sourcesList = form.querySelector("[data-research-sources]");
+
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "Ищем информацию…";
+
+    setText(
+      status,
+      "Изучаем фотографию и ищем сведения в интернете. Это может занять некоторое время."
+    );
+
+    results.hidden = true;
+    setText(summary, "");
+    sourcesList.replaceChildren();
+
+    try {
+      const response = await fetch(button.dataset.researchUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          "Сервер вернул ответ, который не удалось прочитать."
+        );
+      }
+
+      if (!response.ok || data.error) {
+        throw new Error(
+          data.error || `Ошибка сервера: ${response.status}`
+        );
+      }
+
+      const filled = fillEmptyFields(form, data);
+
+      setText(
+        summary,
+        data.search_summary ||
+        "Поиск завершён. Проверьте заполненные поля и источники."
+      );
+
+      addSources(sourcesList, data.sources);
+
+      results.hidden = false;
+
+      let message = `Поиск завершён. Заполнено пустых полей: ${filled}.`;
+
+      if (data.confidence !== undefined && data.confidence !== null) {
+        message += ` Уверенность модели: ${data.confidence}.`;
+      }
+
+      message += " Проверьте сведения перед сохранением.";
+
+      setText(status, message);
+
+    } catch (error) {
+      setText(
+        status,
+        "Не удалось выполнить поиск: " +
+        (error.message || "неизвестная ошибка") +
+        "\nПроверьте GEMINI_API_KEY в настройках Render и логи сервера."
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
