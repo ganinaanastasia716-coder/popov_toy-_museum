@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from functools import wraps
 import requests
 from PIL import Image, ImageOps, ImageFilter
+from pillow_heif import register_heif_opener
+register_heif_opener()
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory
 
 ROOT=Path(__file__).resolve().parent
