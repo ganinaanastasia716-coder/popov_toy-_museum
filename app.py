@@ -420,15 +420,13 @@ def upload():
             except Exception:
                 (folder / name).unlink(missing_ok=True)
                 raise   
-            flash(f"Добавлено экспонатов: {count}. Заполните паспорта.")
 
-            for error in errors[:5]:
-                flash(error)
+    flash(f"Добавлено экспонатов: {count}. Заполните паспорта.")
 
-            return redirect("/admin")
+    for error in errors[:5]:
+        flash(error)
 
-    
-   
+    return redirect("/admin")    
 
 @app.post("/admin/toy/<int:toy_id>/save")
 @admin_only
