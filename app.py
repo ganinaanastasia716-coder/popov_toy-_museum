@@ -228,6 +228,61 @@ def save(toy_id):
   updates["updated_at"]=datetime.now(timezone.utc).isoformat()
   c.execute("UPDATE toys SET "+",".join(k+"=?" for k in updates)+" WHERE id=?",list(updates.values())+[toy_id])
  flash("Карточка сохранена.");return redirect("/admin")
+
+@app.post("/admin/toy/<int:toy_id>/delete")
+@admin_only
+def delete_toy(toy_id):
+    with conn() as c:
+        row = c.execute(
+            "SELECT image_path FROM toys WHERE id = ?",
+            (toy_id,)
+        ).fetchone()
+
+        if row is None:
+            flash("Экспонат не найден.")
+            return redirect("/admin")
+
+        image_path = row["image_path"] or ""
+
+        # Удаляем карточку из базы данных.
+        c.execute(
+            "DELETE FROM toys WHERE id = ?",
+            (toy_id,)
+        )
+
+        # Проверяем, используется ли фотография другой карточкой.
+        still_used = None
+        if image_path:
+            still_used = c.execute(
+                "SELECT 1 FROM toys WHERE image_path = ? LIMIT 1",
+                (image_path,)
+            ).fetchone()
+
+    # Удаляем фотографию, только если её больше никто не использует.
+    photo_deleted = True
+
+    if image_path and not still_used:
+        photos_root = PHOTOS.resolve()
+        photo_file = (PHOTOS / image_path).resolve()
+
+        if photos_root in photo_file.parents and photo_file.is_file():
+            try:
+                photo_file.unlink()
+
+                if photo_file.parent != photos_root:
+                    try:
+                        photo_file.parent.rmdir()
+                    except OSError:
+                        pass
+
+            except OSError:
+                photo_deleted = False
+
+    flash("Карточка удалена.")
+    if not photo_deleted:
+        flash("Фотографию не удалось удалить. Проверьте файлы на сервере.")
+
+    return redirect("/admin")
 @app.post("/admin/toy/<int:toy_id>/research")
 @admin_only
 def research(toy_id):
