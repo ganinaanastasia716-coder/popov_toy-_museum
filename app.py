@@ -1,5 +1,9 @@
 import os, io, json, base64, sqlite3, secrets, mimetypes
 import hashlib
+import threading
+import numpy as np
+import torch
+from transformers import CLIPModel, CLIPProcessor
 from pathlib import Path
 from datetime import datetime, timezone
 from functools import wraps
@@ -25,6 +29,9 @@ def init_db():
  with conn() as c:
   c.execute("""CREATE TABLE IF NOT EXISTS toys(id INTEGER PRIMARY KEY AUTOINCREMENT,inventory_number TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',series TEXT DEFAULT '',brand TEXT DEFAULT '',author TEXT DEFAULT '',rarity TEXT DEFAULT '',height TEXT DEFAULT '',release_year INTEGER,material TEXT DEFAULT '',production_country TEXT DEFAULT '',condition TEXT DEFAULT '',market_price REAL,purchase_price REAL,currency TEXT DEFAULT 'USD',country TEXT DEFAULT 'Thailand',city TEXT DEFAULT '',museum TEXT DEFAULT 'Popov Toy Museum',building TEXT DEFAULT '',hall TEXT DEFAULT '',rack TEXT DEFAULT '',display_case TEXT DEFAULT '',shelf TEXT DEFAULT '',slot TEXT DEFAULT '',description TEXT DEFAULT '',image_path TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
   for col in ["name","brand","series","inventory_number"]: c.execute(f"CREATE INDEX IF NOT EXISTS idx_{col} ON toys({col})")
+  columns = {row["name"] for row in c.execute("PRAGMA table_info(toys)").fetchall()}
+  if "photo_hash" not in columns: c.execute("ALTER TABLE toys ADD COLUMN photo_hash TEXT")
+  if "clip_embedding" not in columns: c.execute("ALTER TABLE toys ADD COLUMN clip_embedding BLOB")
 def next_num(c):
  n=c.execute("SELECT COUNT(*) FROM toys").fetchone()[0]+1
  while c.execute("SELECT 1 FROM toys WHERE inventory_number=?",(f"PM-TOY-{n:05d}",)).fetchone(): n+=1
@@ -38,25 +45,86 @@ def admin_only(fn):
   if not session.get("admin"): return redirect(url_for("login",next=request.path))
   return fn(*a,**kw)
  return w
-def features(raw):
- im=ImageOps.fit(Image.open(io.BytesIO(raw)).convert("RGB"),(12,12))
- vals=[v/255 for p in im.getdata() for v in p]
- ed=im.convert("L").filter(ImageFilter.FIND_EDGES)
- vals += [v/255 for v in ed.getdata()]
- n=sum(x*x for x in vals)**.5 or 1
- return [x/n for x in vals]
+# CLIP model is loaded only when photo search/upload needs it.
+# On Render, the model runs on CPU and its embeddings are cached in SQLite.
+CLIP_MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "openai/clip-vit-base-patch32")
+_clip_model = None
+_clip_processor = None
+_clip_lock = threading.Lock()
+
+
+def get_clip():
+    global _clip_model, _clip_processor
+    if _clip_model is None or _clip_processor is None:
+        with _clip_lock:
+            if _clip_model is None or _clip_processor is None:
+                processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
+                model = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
+                model.eval()
+                model.to("cpu")
+                _clip_processor = processor
+                _clip_model = model
+    return _clip_model, _clip_processor
+
+
+def clip_embedding(raw):
+    """Create a normalized CLIP image vector, stored as float32 bytes."""
+    model, processor = get_clip()
+    image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.inference_mode():
+        vector = model.get_image_features(**inputs)
+        if not isinstance(vector, torch.Tensor):
+            vector = vector.pooler_output
+        vector = torch.nn.functional.normalize(vector, p=2, dim=-1)
+    return vector[0].cpu().numpy().astype(np.float32).tobytes()
+
+
+def embedding_similarity(a, b):
+    try:
+        va = np.frombuffer(a, dtype=np.float32)
+        vb = np.frombuffer(b, dtype=np.float32)
+        if va.size == 0 or va.shape != vb.shape:
+            return -1.0
+        return float(np.dot(va, vb))
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def _get_or_create_embedding(toy_id, image_path, cached_embedding):
+    if cached_embedding:
+        return cached_embedding
+    path = PHOTOS / image_path
+    if not path.is_file():
+        return None
+    embedding = clip_embedding(path.read_bytes())
+    with conn() as c:
+        c.execute("UPDATE toys SET clip_embedding=? WHERE id=?", (embedding, toy_id))
+    return embedding
+
+
 def scan_local(raw):
- try:q=features(raw)
- except Exception:return []
- out=[]
- with conn() as c: rows=c.execute("SELECT * FROM toys WHERE image_path!=''").fetchall()
- for t in rows:
-  p=PHOTOS/t["image_path"]
-  if not p.is_file(): continue
-  try:
-   f=features(p.read_bytes()); score=sum(a*b for a,b in zip(q,f)); out.append({"toy":as_toy(t),"score":round(score,4)})
-  except Exception: pass
- return sorted(out,key=lambda x:x["score"],reverse=True)[:6]
+    """Search every catalog image with CLIP and return the closest candidates."""
+    query_embedding = clip_embedding(raw)
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id, image_path, clip_embedding FROM toys WHERE image_path IS NOT NULL AND image_path != ''"
+        ).fetchall()
+
+    out = []
+    for row in rows:
+        try:
+            embedding = _get_or_create_embedding(row["id"], row["image_path"], row["clip_embedding"])
+            if not embedding:
+                continue
+            score = embedding_similarity(query_embedding, embedding)
+            with conn() as c:
+                toy_row = c.execute("SELECT * FROM toys WHERE id=?", (row["id"],)).fetchone()
+            if toy_row:
+                out.append({"toy": as_toy(toy_row), "score": round(score, 4)})
+        except Exception:
+            app.logger.exception("CLIP failed for catalog item id=%s", row["id"])
+    return sorted(out, key=lambda item: item["score"], reverse=True)[:6]
 
 def online_dossier(raw, filename):
     if not GEMINI_API_KEY:
@@ -256,10 +324,17 @@ def scan_page(): return render_template("scan.html")
 @app.post("/api/scan")
 def api_scan():
  f=request.files.get("photo")
- if not f:return jsonify(error="Сделайте фото или выберите его из галереи."),400
- raw=f.read(); matches=scan_local(raw)
- if matches and matches[0]["score"]>=float(os.getenv("PHOTO_MATCH_THRESHOLD","0.90")): return jsonify(mode="database",matches=matches,message="Похожие экспонаты найдены в базе.")
- return jsonify(mode="not_found",matches=matches,message="В музейной коллекции не найдено уверенного совпадения. Онлайн-поиск доступен только администратору при добавлении экспоната.")
+ if not f: return jsonify(error="Сделайте фото или выберите его из галереи."),400
+ raw=f.read()
+ try:
+  matches=scan_local(raw)
+ except Exception:
+  app.logger.exception("CLIP photo search failed")
+  return jsonify(error="Не удалось запустить визуальный поиск. Проверьте журналы Render: возможно, модель CLIP ещё загружается или не хватает памяти."),503
+ threshold=float(os.getenv("PHOTO_MATCH_THRESHOLD","0.82"))
+ if matches and matches[0]["score"]>=threshold:
+  return jsonify(mode="database",matches=matches,message="Похожие экспонаты найдены в базе.")
+ return jsonify(mode="not_found",matches=matches,message="Уверенное совпадение в коллекции не найдено. Онлайн-поиск доступен только администратору при добавлении экспоната.")
 @app.get("/admin/login")
 def login():return render_template("admin_login.html",next=request.args.get("next","/admin"))
 @app.post("/admin/login")
@@ -280,153 +355,105 @@ def upload():
     files = request.files.getlist("photos")
     count = 0
     errors = []
+    duplicate_threshold = float(os.getenv("CLIP_DUPLICATE_THRESHOLD", "0.965"))
 
     with conn() as c:
+        columns = {row["name"] for row in c.execute("PRAGMA table_info(toys)").fetchall()}
+        if "photo_hash" not in columns:
+            c.execute("ALTER TABLE toys ADD COLUMN photo_hash TEXT")
+        if "clip_embedding" not in columns:
+            c.execute("ALTER TABLE toys ADD COLUMN clip_embedding BLOB")
+
         for f in files:
             if not f or not f.filename:
                 continue
-
             try:
                 raw = f.read()
                 if not raw:
                     errors.append(f"{f.filename}: пустой файл")
                     continue
-
-                # Читаем HEIC/HEIF и другие поддерживаемые форматы.
-                image = Image.open(io.BytesIO(raw))
-                image = ImageOps.exif_transpose(image).convert("RGB")
-
-                # Сохраняем все фотографии в едином формате JPEG.
+                image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
                 output = io.BytesIO()
-                image.save(
-                    output,
-                    format="JPEG",
-                    quality=92,
-                    optimize=True
-                )
+                image.save(output, format="JPEG", quality=92, optimize=True)
                 jpeg_data = output.getvalue()
-
-            except Exception as e:
-                errors.append(
-                    f"{f.filename}: формат не поддерживается "
-                    f"или файл повреждён ({type(e).__name__})"
-                )
+                image_hash = photo_sha256(jpeg_data)
+            except Exception as exc:
+                errors.append(f"{f.filename}: фото повреждено или формат не поддерживается ({type(exc).__name__})")
                 continue
 
-           
-
-            # Проверяем, существует ли колонка photo_hash
-            columns = {
-                row["name"]
-                for row in c.execute(
-                    "PRAGMA table_info(toys)"
-                ).fetchall()
-            }
-
-            if "photo_hash" not in columns:
-                c.execute(
-                    "ALTER TABLE toys ADD COLUMN photo_hash TEXT"
-                )
-
-            # Вычисляем хеш загруженной фотографии
-            image_hash = photo_sha256(jpeg_data)
-
-            # Заполняем хеши старых экспонатов, если их ещё нет
-            old_toys = c.execute(
-                """
-                SELECT id, image_path
-                FROM toys
-                WHERE photo_hash IS NULL OR photo_hash = ''
-                """
-            ).fetchall()
-
-            for old_toy in old_toys:
-                image_path = old_toy["image_path"]
-
-                if not image_path:
-                    continue
-
-                old_path = PHOTOS / image_path
-
-                if old_path.is_file():
-                    old_hash = photo_sha256(old_path.read_bytes())
-                    c.execute(
-                        """
-                        UPDATE toys
-                        SET photo_hash = ?
-                        WHERE id = ?
-                        """,
-                        (old_hash, old_toy["id"])
-                    )
-
-            # Ищем такую же фотографию в базе
-            existing = c.execute(
-                """
-                SELECT inventory_number, name
-                FROM toys
-                WHERE photo_hash = ?
-                LIMIT 1
-                """,
+            exact = c.execute(
+                "SELECT inventory_number, name FROM toys WHERE photo_hash=? LIMIT 1",
                 (image_hash,)
             ).fetchone()
+            if exact:
+                errors.append(f"Точное фото уже есть: {exact['inventory_number']} — {exact['name']}. Карточка не создана.")
+                continue
 
-            if existing:
+            # Fail closed: do not create a card if CLIP cannot check for duplicates.
+            try:
+                new_embedding = clip_embedding(jpeg_data)
+                candidates = c.execute(
+                    "SELECT id, inventory_number, name, image_path, clip_embedding FROM toys WHERE image_path IS NOT NULL AND image_path != ''"
+                ).fetchall()
+                best = None
+                best_score = -1.0
+                for item in candidates:
+                    try:
+                        existing_embedding = _get_or_create_embedding(
+                            item["id"], item["image_path"], item["clip_embedding"]
+                        )
+                        if not existing_embedding:
+                            continue
+                        score = embedding_similarity(new_embedding, existing_embedding)
+                        if score > best_score:
+                            best_score = score
+                            best = item
+                    except Exception:
+                        app.logger.exception("Could not encode existing toy %s", item["inventory_number"])
+                        continue
+
+                if best is not None and best_score >= duplicate_threshold:
+                    errors.append(
+                        f"Возможный дубликат: {best['inventory_number']} — {best['name']} "
+                        f"(CLIP {best_score:.3f}). Новая карточка не создана — проверьте найденный экспонат."
+                    )
+                    continue
+            except Exception as exc:
+                app.logger.exception("CLIP duplicate check failed during upload")
                 errors.append(
-                    f"Фото уже есть в каталоге: "
-                    f"{existing['inventory_number']} — "
-                    f"{existing['name']}"
+                    f"{f.filename}: проверка CLIP не выполнена ({type(exc).__name__}); "
+                    "карточка не создана, чтобы случайно не добавить дубликат. Проверьте логи Render."
                 )
                 continue
 
-            # Дубликат не найден — создаём новый экспонат
             number = next_num(c)
             folder = PHOTOS / number
             folder.mkdir(parents=True, exist_ok=True)
-
-            name = "main.jpg"
-            (folder / name).write_bytes(jpeg_data)
-
-            title = (
-                Path(f.filename).stem
-                .replace("_", " ")
-                .replace("-", " ")
-            )
-
+            photo_file = folder / "main.jpg"
+            photo_file.write_bytes(jpeg_data)
+            title = Path(f.filename).stem.replace("_", " ").replace("-", " ")
             try:
                 c.execute(
-                    """
-                    INSERT INTO toys
-                    (
-                        inventory_number,
-                        name,
-                        country,
-                        museum,
-                        image_path,
-                        photo_hash
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        number,
-                        title,
-                        "Thailand",
-                        "Popov Toy Museum",
-                        f"{number}/{name}",
-                        image_hash
-                    )
+                    """INSERT INTO toys
+                    (inventory_number, name, country, museum, image_path, photo_hash, clip_embedding)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (number, title, "Thailand", "Popov Toy Museum", f"{number}/main.jpg", image_hash, new_embedding)
                 )
                 count += 1
-
             except Exception:
-                (folder / name).unlink(missing_ok=True)
-                raise   
+                photo_file.unlink(missing_ok=True)
+                try:
+                    folder.rmdir()
+                except OSError:
+                    pass
+                raise
 
-    flash(f"Добавлено экспонатов: {count}. Заполните паспорта.")
-
-    for error in errors[:5]:
+    flash(f"Добавлено экспонатов: {count}.")
+    for error in errors[:10]:
         flash(error)
-
-    return redirect("/admin")    
+    if len(errors) > 10:
+        flash(f"Других пропущенных файлов: {len(errors) - 10}.")
+    return redirect("/admin")
 
 @app.post("/admin/toy/<int:toy_id>/save")
 @admin_only
