@@ -1,4 +1,5 @@
 import os, io, json, base64, sqlite3, secrets, mimetypes
+os.environ.setdefault("HF_HOME", "/data/hf-cache")
 import hashlib
 import threading
 import numpy as np
@@ -37,7 +38,7 @@ def next_num(c):
  while c.execute("SELECT 1 FROM toys WHERE inventory_number=?",(f"PM-TOY-{n:05d}",)).fetchone(): n+=1
  return f"PM-TOY-{n:05d}"
 def as_toy(r):
- d=dict(r); d["location"]=" · ".join(str(d[k]) for k in ["country","city","museum","building","hall","rack","display_case","shelf","slot"] if d.get(k)) or "Место не назначено"; return d
+ d=dict(r); d.pop("clip_embedding",None); d["location"]=" · ".join(str(d[k]) for k in ["country","city","museum","building","hall","rack","display_case","shelf","slot"] if d.get(k)) or "Место не назначено"; return d
 def admin_only(fn):
  from functools import wraps
  @wraps(fn)
@@ -91,39 +92,49 @@ def embedding_similarity(a, b):
         return -1.0
 
 
-def _get_or_create_embedding(toy_id, image_path, cached_embedding):
+def _get_or_create_embedding(toy_id, image_path, cached_embedding, connection=None):
+    """Return the cached embedding or compute and store it.
+
+    If `connection` is given, the embedding is written on it and the caller is
+    responsible for committing; otherwise a short-lived connection is used.
+    """
     if cached_embedding:
         return cached_embedding
     path = PHOTOS / image_path
     if not path.is_file():
         return None
     embedding = clip_embedding(path.read_bytes())
-    with conn() as c:
-        c.execute("UPDATE toys SET clip_embedding=? WHERE id=?", (embedding, toy_id))
+    if connection is not None:
+        connection.execute("UPDATE toys SET clip_embedding=? WHERE id=?", (embedding, toy_id))
+    else:
+        with conn() as c:
+            c.execute("UPDATE toys SET clip_embedding=? WHERE id=?", (embedding, toy_id))
     return embedding
 
 
 def scan_local(raw):
     """Search every catalog image with CLIP and return the closest candidates."""
     query_embedding = clip_embedding(raw)
-    with conn() as c:
-        rows = c.execute(
-            "SELECT id, image_path, clip_embedding FROM toys WHERE image_path IS NOT NULL AND image_path != ''"
-        ).fetchall()
-
     out = []
-    for row in rows:
-        try:
-            embedding = _get_or_create_embedding(row["id"], row["image_path"], row["clip_embedding"])
-            if not embedding:
-                continue
-            score = embedding_similarity(query_embedding, embedding)
-            with conn() as c:
-                toy_row = c.execute("SELECT * FROM toys WHERE id=?", (row["id"],)).fetchone()
-            if toy_row:
-                out.append({"toy": as_toy(toy_row), "score": round(score, 4)})
-        except Exception:
-            app.logger.exception("CLIP failed for catalog item id=%s", row["id"])
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT * FROM toys WHERE image_path IS NOT NULL AND image_path != ''"
+        ).fetchall()
+        for row in rows:
+            try:
+                embedding = _get_or_create_embedding(
+                    row["id"], row["image_path"], row["clip_embedding"], connection=c
+                )
+                if not embedding:
+                    continue
+                score = embedding_similarity(query_embedding, embedding)
+                out.append({"toy": as_toy(row), "score": round(score, 4)})
+            except Exception:
+                app.logger.exception("CLIP failed for catalog item id=%s", row["id"])
+        c.commit()
+    finally:
+        c.close()
     return sorted(out, key=lambda item: item["score"], reverse=True)[:6]
 
 def online_dossier(raw, filename):
